@@ -4,8 +4,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 
-from .database import create_schedule, delete_schedule, initialize_database, list_trip_days, update_schedule
-from .schemas import ScheduleCreate, ScheduleItem, ScheduleUpdate, TripDay
+from .database import create_schedule, create_trip, delete_schedule, delete_trip, initialize_database, list_trip_days, list_trips, replace_trip_members, update_schedule
+from .schemas import ScheduleCreate, ScheduleItem, ScheduleUpdate, Trip, TripCreate, TripDay, TripMembersUpdate
 
 
 @asynccontextmanager
@@ -30,6 +30,37 @@ app.add_middleware(
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/trips", response_model=list[Trip])
+def get_trips() -> list[Trip]:
+    return list_trips()
+
+
+@app.post("/api/trips", response_model=Trip, status_code=status.HTTP_201_CREATED)
+def post_trip(data: TripCreate) -> Trip:
+    try:
+        return create_trip(data)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.put("/api/trips/{trip_id}/members", response_model=Trip)
+def put_trip_members(trip_id: str, data: TripMembersUpdate) -> Trip:
+    try:
+        trip = replace_trip_members(trip_id, data.members)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    return trip
+
+
+@app.delete("/api/trips/{trip_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_trip(trip_id: str) -> Response:
+    if not delete_trip(trip_id):
+        raise HTTPException(status_code=404, detail="Trip not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.get("/api/trips/{trip_id}/days", response_model=list[TripDay], response_model_by_alias=True)

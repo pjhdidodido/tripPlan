@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { NewScheduleInput, ScheduleItem, TripDay, UpdateScheduleInput } from "../model/trip";
+import type { CreateTripInput, NewScheduleInput, ScheduleItem, Trip, TripDay, UpdateScheduleInput, UpdateTripMembersInput } from "../model/trip";
 
 const scheduleBaseSchema = z.object({ id: z.string(), time: z.string(), title: z.string(), status: z.enum(["confirmed", "candidate"]) });
 const scheduleItemSchema = z.discriminatedUnion("kind", [
@@ -8,6 +8,7 @@ const scheduleItemSchema = z.discriminatedUnion("kind", [
   scheduleBaseSchema.extend({ kind: z.literal("transport"), from: z.string(), to: z.string() }),
 ]);
 const tripDaysSchema = z.array(z.object({ id: z.string(), label: z.string(), date: z.string(), items: z.array(scheduleItemSchema) }));
+const tripSchema = z.object({ id: z.string(), title: z.string(), destination: z.string(), startDate: z.string(), endDate: z.string(), members: z.array(z.string()) });
 
 const API_URL = (process.env.NEXT_PUBLIC_TRIPWEAVE_API_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
 
@@ -22,6 +23,22 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
 
 export async function getTripDays(tripId: string, signal?: AbortSignal): Promise<TripDay[]> {
   return tripDaysSchema.parse(await request(`/api/trips/${encodeURIComponent(tripId)}/days`, { signal }));
+}
+
+export async function getTrips(signal?: AbortSignal): Promise<Trip[]> {
+  return z.array(tripSchema).parse(await request("/api/trips", { signal }));
+}
+
+export async function createTrip(input: CreateTripInput): Promise<Trip> {
+  return tripSchema.parse(await request("/api/trips", { method: "POST", body: JSON.stringify(input) }));
+}
+
+export async function updateTripMembers(tripId: string, input: UpdateTripMembersInput): Promise<Trip> {
+  return tripSchema.parse(await request(`/api/trips/${encodeURIComponent(tripId)}/members`, { method: "PUT", body: JSON.stringify(input) }));
+}
+
+export async function deleteTrip(tripId: string): Promise<void> {
+  await request(`/api/trips/${encodeURIComponent(tripId)}`, { method: "DELETE" });
 }
 
 export async function createTripSchedule(tripId: string, dayId: string, input: NewScheduleInput): Promise<ScheduleItem> {

@@ -3,6 +3,27 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field
 
 
+class Trip(BaseModel):
+    id: str
+    title: str
+    destination: str
+    startDate: str
+    endDate: str
+    members: list[str]
+
+
+class TripCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=80)
+    destination: str = Field(min_length=1, max_length=80)
+    startDate: str
+    endDate: str
+    members: list[str] = Field(min_length=1, max_length=12)
+
+
+class TripMembersUpdate(BaseModel):
+    members: list[str] = Field(min_length=1, max_length=12)
+
+
 class ScheduleBase(BaseModel):
     id: str
     time: str

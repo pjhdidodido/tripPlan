@@ -20,6 +20,19 @@ export type TripDay = {
   items: ScheduleItem[];
 };
 
+export type Trip = {
+  id: string;
+  title: string;
+  destination: string;
+  startDate: string;
+  endDate: string;
+  members: string[];
+};
+
+export type CreateTripInput = Omit<Trip, "id">;
+
+export type UpdateTripMembersInput = Pick<Trip, "members">;
+
 export type NewScheduleInput = {
   title: string;
   time: string;

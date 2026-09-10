@@ -25,6 +25,9 @@ npm run dev
 ## 현재 범위
 
 - 반응형 일정 대시보드
+- 상단 여행 목록에서 여행별 화면 전환
+- 여행 생성·삭제와 여행 기간별 날짜 자동 생성
+- 여행별 동행인 추가·변경
 - 날짜별 일정 목록과 빈 상태
 - 장소·식사·이동을 구분하는 TypeScript 유니온
 - 후보 일정 추가 및 입력 검증
@@ -40,7 +43,6 @@ app/                         라우팅과 공통 레이아웃
 features/trips/              여행 도메인 기능
   api/                       FastAPI 요청과 응답 검증
   components/                화면과 상호작용 컴포넌트
-  data/                      샘플 여행 데이터
   model/                     도메인 타입
 components/ui/               공용 UI 기본 컴포넌트
 backend/                     FastAPI와 SQLite 백엔드
@@ -49,4 +51,4 @@ backend/                     FastAPI와 SQLite 백엔드
   app/schemas.py             Pydantic 요청·응답 모델
 ```
 
-일정은 `backend/data/tripweave.db`에 저장됩니다. 프론트엔드나 브라우저를 다시 실행해도 유지되고, 같은 Python API에 접속한 브라우저는 같은 데이터를 봅니다. 배포할 때는 Python 서버에 영구 디스크를 연결하거나 PostgreSQL 또는 Cloudflare D1으로 저장소를 교체해야 합니다.
+여행, 동행인, 날짜, 일정은 `backend/data/tripweave.db`에 여행별로 저장됩니다. 프론트엔드나 브라우저를 다시 실행해도 유지되고, 같은 Python API에 접속한 브라우저는 같은 데이터를 봅니다. 배포할 때는 Python 서버에 영구 디스크를 연결하거나 PostgreSQL 또는 Cloudflare D1으로 저장소를 교체해야 합니다.

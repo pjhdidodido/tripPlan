@@ -1,13 +1,15 @@
 import os
+import re
 import sqlite3
 from contextlib import contextmanager
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Iterator
 from uuid import uuid4
 
 from pydantic import TypeAdapter
 
-from .schemas import ScheduleCreate, ScheduleItem, ScheduleUpdate, TripDay
+from .schemas import ScheduleCreate, ScheduleItem, ScheduleUpdate, Trip, TripCreate, TripDay
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "tripweave.db"
 DB_PATH = Path(os.getenv("TRIPWEAVE_DB_PATH", DEFAULT_DB_PATH))
@@ -31,6 +33,28 @@ def initialize_database() -> None:
     with connection() as database:
         database.executescript(
             """
+            CREATE TABLE IF NOT EXISTS trips (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                destination TEXT NOT NULL,
+                start_date TEXT NOT NULL,
+                end_date TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS app_metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS trip_members (
+                id TEXT PRIMARY KEY,
+                trip_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS trip_days (
                 trip_id TEXT NOT NULL,
                 id TEXT NOT NULL,
@@ -57,26 +81,132 @@ def initialize_database() -> None:
             );
             """
         )
-        existing = database.execute(
-            "SELECT 1 FROM trip_days WHERE trip_id = ? LIMIT 1", ("kyoto-autumn",)
-        ).fetchone()
-        if existing:
+        seeded = database.execute("SELECT 1 FROM app_metadata WHERE key = 'initial_trips_seeded'").fetchone()
+        if seeded:
             return
 
-        days = [
-            ("kyoto-autumn", "day-1", "DAY 1", "10월 17일", 1),
-            ("kyoto-autumn", "day-2", "DAY 2", "10월 18일", 2),
-            ("kyoto-autumn", "day-3", "DAY 3", "10월 19일", 3),
-            ("kyoto-autumn", "day-4", "DAY 4", "10월 20일", 4),
-        ]
-        database.executemany("INSERT INTO trip_days VALUES (?, ?, ?, ?, ?)", days)
-        schedules = [
-            ("a1", "kyoto-autumn", "day-2", "place", "09:30", "기요미즈데라 산책", "confirmed", "히가시야마", 120, None, None, None),
-            ("a2", "kyoto-autumn", "day-2", "meal", "12:10", "오멘 은각사점", "confirmed", "사쿄구", None, "민서", None, None),
-            ("a3", "kyoto-autumn", "day-2", "transport", "14:00", "철학의 길로 이동", "confirmed", None, None, None, "은각사", "난젠지"),
-            ("a4", "kyoto-autumn", "day-2", "place", "17:20", "가모강 노을 피크닉", "candidate", "데마치야나기", 90, None, None, None),
-        ]
-        database.executemany("INSERT INTO schedules VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", schedules)
+        database.execute(
+            "INSERT OR IGNORE INTO trips (id, title, destination, start_date, end_date) VALUES (?, ?, ?, ?, ?)",
+            ("kyoto-autumn", "교토의 느린 가을", "교토", "2026-10-17", "2026-10-20"),
+        )
+        database.execute(
+            "INSERT OR IGNORE INTO trips (id, title, destination, start_date, end_date) VALUES (?, ?, ?, ?, ?)",
+            ("korea-weekend", "한국 주말 여행", "서울", "2027-04-03", "2027-04-05"),
+        )
+        for trip_id, names in (("kyoto-autumn", ["민서", "준호", "서연", "나"]), ("korea-weekend", ["지우", "현우"])):
+            has_members = database.execute("SELECT 1 FROM trip_members WHERE trip_id = ? LIMIT 1", (trip_id,)).fetchone()
+            if not has_members:
+                database.executemany(
+                    "INSERT INTO trip_members (id, trip_id, name, position) VALUES (?, ?, ?, ?)",
+                    [(str(uuid4()), trip_id, name, position) for position, name in enumerate(names)],
+                )
+
+        existing = database.execute("SELECT 1 FROM trip_days WHERE trip_id = ? LIMIT 1", ("kyoto-autumn",)).fetchone()
+        if not existing:
+            days = [
+                ("kyoto-autumn", "day-1", "DAY 1", "10월 17일", 1),
+                ("kyoto-autumn", "day-2", "DAY 2", "10월 18일", 2),
+                ("kyoto-autumn", "day-3", "DAY 3", "10월 19일", 3),
+                ("kyoto-autumn", "day-4", "DAY 4", "10월 20일", 4),
+            ]
+            database.executemany("INSERT INTO trip_days VALUES (?, ?, ?, ?, ?)", days)
+            schedules = [
+                ("a1", "kyoto-autumn", "day-2", "place", "09:30", "기요미즈데라 산책", "confirmed", "히가시야마", 120, None, None, None),
+                ("a2", "kyoto-autumn", "day-2", "meal", "12:10", "오멘 은각사점", "confirmed", "사쿄구", None, "민서", None, None),
+                ("a3", "kyoto-autumn", "day-2", "transport", "14:00", "철학의 길로 이동", "confirmed", None, None, None, "은각사", "난젠지"),
+                ("a4", "kyoto-autumn", "day-2", "place", "17:20", "가모강 노을 피크닉", "candidate", "데마치야나기", 90, None, None, None),
+            ]
+            database.executemany("INSERT INTO schedules VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", schedules)
+
+        korea_days = database.execute("SELECT 1 FROM trip_days WHERE trip_id = ? LIMIT 1", ("korea-weekend",)).fetchone()
+        if not korea_days:
+            database.executemany(
+                "INSERT INTO trip_days VALUES (?, ?, ?, ?, ?)",
+                [("korea-weekend", f"day-{index}", f"DAY {index}", f"4월 {day}일", index) for index, day in enumerate(range(3, 6), start=1)],
+            )
+        database.execute("INSERT INTO app_metadata (key, value) VALUES ('initial_trips_seeded', '1')")
+
+
+def _trip_from_row(database: sqlite3.Connection, row: sqlite3.Row) -> Trip:
+    member_rows = database.execute("SELECT name FROM trip_members WHERE trip_id = ? ORDER BY position", (row["id"],)).fetchall()
+    return Trip(
+        id=row["id"],
+        title=row["title"],
+        destination=row["destination"],
+        startDate=row["start_date"],
+        endDate=row["end_date"],
+        members=[member["name"] for member in member_rows],
+    )
+
+
+def list_trips() -> list[Trip]:
+    with connection() as database:
+        rows = database.execute("SELECT * FROM trips ORDER BY start_date, created_at").fetchall()
+        return [_trip_from_row(database, row) for row in rows]
+
+
+def get_trip(trip_id: str) -> Trip | None:
+    with connection() as database:
+        row = database.execute("SELECT * FROM trips WHERE id = ?", (trip_id,)).fetchone()
+        return _trip_from_row(database, row) if row else None
+
+
+def _clean_members(members: list[str]) -> list[str]:
+    cleaned = [name.strip() for name in members if name.strip()]
+    return list(dict.fromkeys(cleaned))
+
+
+def create_trip(data: TripCreate) -> Trip:
+    start = date.fromisoformat(data.startDate)
+    end = date.fromisoformat(data.endDate)
+    if end < start or (end - start).days > 13:
+        raise ValueError("Trip dates must span between 1 and 14 days")
+    members = _clean_members(data.members)
+    if not members:
+        raise ValueError("At least one member is required")
+    slug = re.sub(r"[^a-z0-9]+", "-", data.destination.lower()).strip("-") or "trip"
+    trip_id = f"{slug}-{uuid4().hex[:8]}"
+    with connection() as database:
+        database.execute(
+            "INSERT INTO trips (id, title, destination, start_date, end_date) VALUES (?, ?, ?, ?, ?)",
+            (trip_id, data.title.strip(), data.destination.strip(), data.startDate, data.endDate),
+        )
+        database.executemany(
+            "INSERT INTO trip_members (id, trip_id, name, position) VALUES (?, ?, ?, ?)",
+            [(str(uuid4()), trip_id, name, position) for position, name in enumerate(members)],
+        )
+        day_count = (end - start).days + 1
+        database.executemany(
+            "INSERT INTO trip_days (trip_id, id, label, date, position) VALUES (?, ?, ?, ?, ?)",
+            [(trip_id, f"day-{index}", f"DAY {index}", f"{current.month}월 {current.day}일", index) for index in range(1, day_count + 1) for current in [start + timedelta(days=index - 1)]],
+        )
+        row = database.execute("SELECT * FROM trips WHERE id = ?", (trip_id,)).fetchone()
+        return _trip_from_row(database, row)
+
+
+def replace_trip_members(trip_id: str, members: list[str]) -> Trip | None:
+    cleaned = _clean_members(members)
+    if not cleaned:
+        raise ValueError("At least one member is required")
+    with connection() as database:
+        row = database.execute("SELECT * FROM trips WHERE id = ?", (trip_id,)).fetchone()
+        if not row:
+            return None
+        database.execute("DELETE FROM trip_members WHERE trip_id = ?", (trip_id,))
+        database.executemany(
+            "INSERT INTO trip_members (id, trip_id, name, position) VALUES (?, ?, ?, ?)",
+            [(str(uuid4()), trip_id, name, position) for position, name in enumerate(cleaned)],
+        )
+        return _trip_from_row(database, row)
+
+
+def delete_trip(trip_id: str) -> bool:
+    with connection() as database:
+        database.execute("DELETE FROM schedules WHERE trip_id = ?", (trip_id,))
+        database.execute("DELETE FROM trip_days WHERE trip_id = ?", (trip_id,))
+        database.execute("DELETE FROM trip_members WHERE trip_id = ?", (trip_id,))
+        cursor = database.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
+    return cursor.rowcount > 0
 
 
 def _schedule_from_row(row: sqlite3.Row) -> ScheduleItem:

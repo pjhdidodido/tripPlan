@@ -16,6 +16,8 @@
 - `fetch`와 Zod를 이용한 API 통신 및 런타임 검증
 - 배열의 `map`, `filter`를 이용한 수정·삭제
 - FastAPI, Pydantic, SQLite로 구현한 서버 CRUD
+- `Trip`, `TripDay`, `Schedule`, `Member` 사이의 데이터 관계
+- 동적 라우트와 여행 선택에 따른 화면 상태 전환
 - 데스크톱과 모바일 반응형 화면
 
 ## 코드를 읽는 순서
@@ -28,6 +30,8 @@
 6. `api/trip-api.ts`에서 서버의 JSON 데이터가 TypeScript 타입만으로 안전해지지 않는 이유와 Zod 검증 과정을 확인합니다.
 7. `backend/app/schemas.py`와 TypeScript 타입을 비교하고 두 언어가 API 계약을 표현하는 방식을 확인합니다.
 8. `backend/app/database.py`에서 SQL의 생성·조회·수정·삭제 흐름을 따라갑니다.
+9. `trip-switcher.tsx`에서 새 여행을 만든 뒤 동적 URL로 이동하는 과정을 확인합니다.
+10. `manage-members-dialog.tsx`에서 배열 입력을 추가·변경·삭제하는 방식을 확인합니다.
 
 ## 다음 단계
 
