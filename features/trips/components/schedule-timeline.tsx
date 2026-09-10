@@ -1,5 +1,10 @@
-import { ArrowUpRight, Check, MapPin, Navigation, Plus, TrainFront, Utensils } from "lucide-react";
+"use client";
+
+import { useState } from "react";
+import { Check, MapPin, MoreHorizontal, Navigation, Pencil, Plus, TrainFront, Trash2, Utensils } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type { ScheduleItem, ScheduleKind } from "../model/trip";
 
 const kindMeta = {
@@ -22,9 +27,13 @@ function scheduleDescription(item: ScheduleItem): string {
 type ScheduleTimelineProps = {
   items: ScheduleItem[];
   onCreate: () => void;
+  onEdit: (item: ScheduleItem) => void;
+  onDelete: (item: ScheduleItem) => void;
 };
 
-export function ScheduleTimeline({ items, onCreate }: ScheduleTimelineProps) {
+export function ScheduleTimeline({ items, onCreate, onEdit, onDelete }: ScheduleTimelineProps) {
+  const [deletingItem, setDeletingItem] = useState<ScheduleItem | null>(null);
+
   if (items.length === 0) {
     return (
       <div className="timeline">
@@ -59,10 +68,22 @@ export function ScheduleTimeline({ items, onCreate }: ScheduleTimelineProps) {
               </div>
               <p>{scheduleDescription(item)}</p>
             </div>
-            <button aria-label={`${item.title} 상세 보기`}><ArrowUpRight /></button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild><button className="schedule-actions" aria-label={`${item.title} 메뉴`}><MoreHorizontal /></button></DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => onEdit(item)}><Pencil /> 수정</DropdownMenuItem>
+                <DropdownMenuItem variant="destructive" onSelect={() => setDeletingItem(item)}><Trash2 /> 삭제</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </article>
         );
       })}
+      <AlertDialog open={deletingItem !== null} onOpenChange={(open) => { if (!open) setDeletingItem(null); }}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader><AlertDialogTitle>일정을 삭제할까요?</AlertDialogTitle><AlertDialogDescription>“{deletingItem?.title}” 일정이 이 기기에서 삭제됩니다.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>취소</AlertDialogCancel><AlertDialogAction variant="destructive" onClick={() => { if (deletingItem) onDelete(deletingItem); setDeletingItem(null); }}>삭제</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

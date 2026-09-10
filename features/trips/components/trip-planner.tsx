@@ -1,13 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUpRight, CalendarDays, ChevronDown, CircleDollarSign, Clock3, Sparkles, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Toaster } from "@/components/ui/sonner";
+import { toast } from "sonner";
 import { sampleTripDays } from "../data/sample-trip";
-import type { NewScheduleInput, ScheduleItem, ScheduleKind } from "../model/trip";
+import type { NewScheduleInput, ScheduleItem, ScheduleKind, UpdateScheduleInput } from "../model/trip";
+import { loadTripDays, saveTripDays } from "../storage/trip-storage";
 import { AddScheduleDialog } from "./add-schedule-dialog";
+import { EditScheduleDialog } from "./edit-schedule-dialog";
 import { ScheduleTimeline } from "./schedule-timeline";
 
 type TripPlannerProps = { tripId: string };
@@ -16,7 +19,27 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
   const [days, setDays] = useState(sampleTripDays);
   const [activeDayId, setActiveDayId] = useState("day-2");
   const [isOpen, setIsOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<ScheduleItem | null>(null);
+  const [hasLoadedStorage, setHasLoadedStorage] = useState(false);
+  const skipNextSave = useRef(true);
   const activeDay = useMemo(() => days.find((day) => day.id === activeDayId) ?? days[0], [days, activeDayId]);
+
+  useEffect(() => {
+    skipNextSave.current = true;
+    // localStorage is unavailable during SSR, so hydrate browser data after mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDays(loadTripDays(tripId, sampleTripDays));
+    setHasLoadedStorage(true);
+  }, [tripId]);
+
+  useEffect(() => {
+    if (!hasLoadedStorage) return;
+    if (skipNextSave.current) {
+      skipNextSave.current = false;
+      return;
+    }
+    saveTripDays(tripId, days);
+  }, [days, hasLoadedStorage, tripId]);
 
   const appendSchedule = useCallback((input: NewScheduleInput, dayId: string): string => {
     const title = input.title.trim();
@@ -34,6 +57,19 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
       ? { ...day, items: [...day.items, item].sort((a, b) => a.time.localeCompare(b.time)) }
       : day));
     return id;
+  }, []);
+
+  const updateSchedule = useCallback((dayId: string, itemId: string, input: UpdateScheduleInput) => {
+    setDays((current) => current.map((day) => day.id === dayId
+      ? { ...day, items: day.items.map((item) => item.id === itemId ? { ...item, ...input } : item).sort((a, b) => a.time.localeCompare(b.time)) }
+      : day));
+  }, []);
+
+  const deleteSchedule = useCallback((dayId: string, item: ScheduleItem) => {
+    setDays((current) => current.map((day) => day.id === dayId
+      ? { ...day, items: day.items.filter((candidate) => candidate.id !== item.id) }
+      : day));
+    toast.success(`“${item.title}” 일정을 삭제했어요.`);
   }, []);
 
   useEffect(() => {
@@ -102,8 +138,9 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
           <div className="day-tabs" role="tablist" aria-label="여행 날짜">
             {days.map((day) => <button key={day.id} role="tab" aria-selected={day.id === activeDayId} onClick={() => setActiveDayId(day.id)}><span>{day.label}</span><strong>{day.date.replace("월 ", ".")}</strong></button>)}
           </div>
-          <div className="day-summary"><div><span>{activeDay.date}</span><strong>{activeDay.items.length}개의 일정</strong></div><p>걷는 시간이 많은 날이에요. 편한 신발을 챙기세요.</p></div>
-          <ScheduleTimeline items={activeDay.items} onCreate={() => setIsOpen(true)} />
+          <div className="day-summary"><div><span>{activeDay.date}</span><strong>{activeDay.items.length}개의 일정</strong></div><p><span className="save-indicator">이 기기에 자동 저장</span> · 걷는 시간이 많은 날이에요.</p></div>
+          <ScheduleTimeline items={activeDay.items} onCreate={() => setIsOpen(true)} onEdit={setEditingItem} onDelete={(item) => deleteSchedule(activeDayId, item)} />
+          <EditScheduleDialog key={editingItem?.id ?? "closed"} item={editingItem} open={editingItem !== null} onOpenChange={(open) => { if (!open) setEditingItem(null); }} onSave={(input) => { if (editingItem) updateSchedule(activeDayId, editingItem.id, input); }} />
         </section>
 
         <aside className="insight-rail">

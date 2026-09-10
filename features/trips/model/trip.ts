@@ -26,3 +26,9 @@ export type NewScheduleInput = {
   kind: ScheduleKind;
   location: string;
 };
+
+export type UpdateScheduleInput = {
+  title: string;
+  time: string;
+  status: ScheduleStatus;
+};
