@@ -28,7 +28,7 @@ type ScheduleTimelineProps = {
   items: ScheduleItem[];
   onCreate: () => void;
   onEdit: (item: ScheduleItem) => void;
-  onDelete: (item: ScheduleItem) => void;
+  onDelete: (item: ScheduleItem) => Promise<void> | void;
 };
 
 export function ScheduleTimeline({ items, onCreate, onEdit, onDelete }: ScheduleTimelineProps) {

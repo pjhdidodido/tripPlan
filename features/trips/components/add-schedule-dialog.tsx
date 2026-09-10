@@ -17,22 +17,26 @@ type AddScheduleDialogProps = {
   date: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAdd: (input: NewScheduleInput) => void;
+  onAdd: (input: NewScheduleInput) => Promise<void> | void;
 };
 
 export function AddScheduleDialog({ date, open, onOpenChange, onAdd }: AddScheduleDialogProps) {
   const [form, setForm] = useState<NewScheduleInput>({ title: "", time: "15:00", kind: "place", location: "" });
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!form.title.trim() || !form.location.trim()) {
       toast.error("일정 이름과 장소를 입력해 주세요.");
       return;
     }
-    onAdd(form);
-    setForm({ title: "", time: "15:00", kind: "place", location: "" });
-    onOpenChange(false);
-    toast.success(`${date}에 일정을 추가했어요.`);
+    try {
+      await onAdd(form);
+      setForm({ title: "", time: "15:00", kind: "place", location: "" });
+      onOpenChange(false);
+      toast.success(`${date}에 일정을 추가했어요.`);
+    } catch {
+      toast.error("일정을 저장하지 못했어요. Python API가 실행 중인지 확인해 주세요.");
+    }
   }
 
   return (

@@ -10,7 +10,7 @@ type EditScheduleDialogProps = {
   item: ScheduleItem | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (input: UpdateScheduleInput) => void;
+  onSave: (input: UpdateScheduleInput) => Promise<void> | void;
 };
 
 const emptyForm: UpdateScheduleInput = { title: "", time: "09:00", status: "candidate" };
@@ -20,15 +20,19 @@ export function EditScheduleDialog({ item, open, onOpenChange, onSave }: EditSch
     ? { title: item.title, time: item.time, status: item.status }
     : emptyForm);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!form.title.trim()) {
       toast.error("일정 이름을 입력해 주세요.");
       return;
     }
-    onSave({ ...form, title: form.title.trim() });
-    onOpenChange(false);
-    toast.success("일정을 수정했어요.");
+    try {
+      await onSave({ ...form, title: form.title.trim() });
+      onOpenChange(false);
+      toast.success("일정을 수정했어요.");
+    } catch {
+      toast.error("일정을 수정하지 못했어요. Python API가 실행 중인지 확인해 주세요.");
+    }
   }
 
   return (

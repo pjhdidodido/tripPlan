@@ -1,14 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowUpRight, CalendarDays, ChevronDown, CircleDollarSign, Clock3, Sparkles, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
+import { createTripSchedule, deleteTripSchedule, getTripDays, updateTripSchedule } from "../api/trip-api";
 import { sampleTripDays } from "../data/sample-trip";
 import type { NewScheduleInput, ScheduleItem, ScheduleKind, UpdateScheduleInput } from "../model/trip";
-import { loadTripDays, saveTripDays } from "../storage/trip-storage";
 import { AddScheduleDialog } from "./add-schedule-dialog";
 import { EditScheduleDialog } from "./edit-schedule-dialog";
 import { ScheduleTimeline } from "./schedule-timeline";
@@ -20,57 +20,50 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
   const [activeDayId, setActiveDayId] = useState("day-2");
   const [isOpen, setIsOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<ScheduleItem | null>(null);
-  const [hasLoadedStorage, setHasLoadedStorage] = useState(false);
-  const skipNextSave = useRef(true);
   const activeDay = useMemo(() => days.find((day) => day.id === activeDayId) ?? days[0], [days, activeDayId]);
 
   useEffect(() => {
-    skipNextSave.current = true;
-    // localStorage is unavailable during SSR, so hydrate browser data after mount.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setDays(loadTripDays(tripId, sampleTripDays));
-    setHasLoadedStorage(true);
+    const controller = new AbortController();
+    void getTripDays(tripId, controller.signal)
+      .then(setDays)
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        toast.error("저장된 일정을 불러오지 못했어요. Python API가 실행 중인지 확인해 주세요.");
+      });
+    return () => controller.abort();
   }, [tripId]);
 
-  useEffect(() => {
-    if (!hasLoadedStorage) return;
-    if (skipNextSave.current) {
-      skipNextSave.current = false;
-      return;
-    }
-    saveTripDays(tripId, days);
-  }, [days, hasLoadedStorage, tripId]);
-
-  const appendSchedule = useCallback((input: NewScheduleInput, dayId: string): string => {
+  const appendSchedule = useCallback(async (input: NewScheduleInput, dayId: string): Promise<string> => {
     const title = input.title.trim();
     const location = input.location.trim();
     if (!title || !location) throw new Error("일정 이름과 장소가 필요합니다.");
-    const id = crypto.randomUUID();
-    const common = { id, time: input.time, title, status: "candidate" as const };
-    const item: ScheduleItem = input.kind === "transport"
-      ? { ...common, kind: "transport", from: location, to: "목적지 미정" }
-      : input.kind === "meal"
-        ? { ...common, kind: "meal", location }
-        : { ...common, kind: "place", location, durationMinutes: 60 };
+    const item = await createTripSchedule(tripId, dayId, { ...input, title, location });
 
     setDays((current) => current.map((day) => day.id === dayId
       ? { ...day, items: [...day.items, item].sort((a, b) => a.time.localeCompare(b.time)) }
       : day));
-    return id;
-  }, []);
+    return item.id;
+  }, [tripId]);
 
-  const updateSchedule = useCallback((dayId: string, itemId: string, input: UpdateScheduleInput) => {
+  const updateSchedule = useCallback(async (dayId: string, itemId: string, input: UpdateScheduleInput) => {
+    const updated = await updateTripSchedule(tripId, dayId, itemId, input);
     setDays((current) => current.map((day) => day.id === dayId
-      ? { ...day, items: day.items.map((item) => item.id === itemId ? { ...item, ...input } : item).sort((a, b) => a.time.localeCompare(b.time)) }
+      ? { ...day, items: day.items.map((item) => item.id === itemId ? updated : item).sort((a, b) => a.time.localeCompare(b.time)) }
       : day));
-  }, []);
+  }, [tripId]);
 
-  const deleteSchedule = useCallback((dayId: string, item: ScheduleItem) => {
+  const deleteSchedule = useCallback(async (dayId: string, item: ScheduleItem) => {
+    try {
+      await deleteTripSchedule(tripId, dayId, item.id);
+    } catch {
+      toast.error("일정을 삭제하지 못했어요. Python API가 실행 중인지 확인해 주세요.");
+      return;
+    }
     setDays((current) => current.map((day) => day.id === dayId
       ? { ...day, items: day.items.filter((candidate) => candidate.id !== item.id) }
       : day));
     toast.success(`“${item.title}” 일정을 삭제했어요.`);
-  }, []);
+  }, [tripId]);
 
   useEffect(() => {
     type ToolInput = { dayId?: unknown; title?: unknown; time?: unknown; kind?: unknown; location?: unknown };
@@ -95,14 +88,14 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
         additionalProperties: false,
       },
       annotations: { readOnlyHint: false, untrustedContentHint: false },
-      execute(input: unknown) {
+      async execute(input: unknown) {
         const value = input as ToolInput;
         if (typeof value.dayId !== "string" || !sampleTripDays.some((day) => day.id === value.dayId)
           || typeof value.title !== "string" || typeof value.time !== "string"
           || typeof value.location !== "string" || !["place", "meal", "transport"].includes(String(value.kind))) {
           throw new Error("올바른 날짜, 이름, 시간, 종류, 장소를 입력해 주세요.");
         }
-        const id = appendSchedule({ title: value.title, time: value.time, kind: value.kind as ScheduleKind, location: value.location }, value.dayId);
+        const id = await appendSchedule({ title: value.title, time: value.time, kind: value.kind as ScheduleKind, location: value.location }, value.dayId);
         return { id, tripId, dayId: value.dayId, status: "candidate" };
       },
     }, { signal: lifecycle.signal });
@@ -133,12 +126,12 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
         <section className="plan-canvas" id="plan">
           <div className="plan-heading">
             <div><p className="kicker"><Sparkles /> 모두의 선택을 한 흐름으로</p><h1>교토 일정</h1></div>
-            <AddScheduleDialog date={activeDay.date} open={isOpen} onOpenChange={setIsOpen} onAdd={(input) => appendSchedule(input, activeDayId)} />
+            <AddScheduleDialog date={activeDay.date} open={isOpen} onOpenChange={setIsOpen} onAdd={async (input) => { await appendSchedule(input, activeDayId); }} />
           </div>
           <div className="day-tabs" role="tablist" aria-label="여행 날짜">
             {days.map((day) => <button key={day.id} role="tab" aria-selected={day.id === activeDayId} onClick={() => setActiveDayId(day.id)}><span>{day.label}</span><strong>{day.date.replace("월 ", ".")}</strong></button>)}
           </div>
-          <div className="day-summary"><div><span>{activeDay.date}</span><strong>{activeDay.items.length}개의 일정</strong></div><p><span className="save-indicator">이 기기에 자동 저장</span> · 걷는 시간이 많은 날이에요.</p></div>
+          <div className="day-summary"><div><span>{activeDay.date}</span><strong>{activeDay.items.length}개의 일정</strong></div><p><span className="save-indicator">Python API에 자동 저장</span> · 걷는 시간이 많은 날이에요.</p></div>
           <ScheduleTimeline items={activeDay.items} onCreate={() => setIsOpen(true)} onEdit={setEditingItem} onDelete={(item) => deleteSchedule(activeDayId, item)} />
           <EditScheduleDialog key={editingItem?.id ?? "closed"} item={editingItem} open={editingItem !== null} onOpenChange={(open) => { if (!open) setEditingItem(null); }} onSave={(input) => { if (editingItem) updateSchedule(activeDayId, editingItem.id, input); }} />
         </section>
