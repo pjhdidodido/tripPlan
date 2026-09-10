@@ -13,7 +13,12 @@ export type ScheduleItem =
   | (ScheduleBase & { kind: "meal"; location: string; reservationName?: string })
   | (ScheduleBase & { kind: "transport"; from: string; to: string });
 
-export type TripDay = { id: string; label: string; date: string; items: ScheduleItem[] };
+export type TripDay = {
+  id: string;
+  label: string;
+  date: string;
+  items: ScheduleItem[];
+};
 
 export type NewScheduleInput = {
   title: string;

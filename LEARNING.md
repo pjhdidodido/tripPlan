@@ -4,8 +4,12 @@
 
 ## 현재 완성된 1단계
 
-- `lib/trip-types.ts`: 여행 일정의 도메인 타입
-- `app/trip-planner.tsx`: 날짜 선택, 일정 추가, 화면 상태 관리
+- `features/trips/model/trip.ts`: 여행 일정의 도메인 타입
+- `features/trips/data/sample-trip.ts`: 타입을 만족하는 샘플 데이터
+- `features/trips/components/trip-planner.tsx`: 날짜 선택과 화면 상태 관리
+- `features/trips/components/add-schedule-dialog.tsx`: 입력 폼과 검증
+- `features/trips/components/schedule-timeline.tsx`: 일정 종류별 렌더링
+- `app/trips/[tripId]/page.tsx`: 여행 ID를 받는 동적 라우트
 - `ScheduleItem` 구분된 유니온과 `switch`를 이용한 타입 좁히기
 - `satisfies`를 이용한 일정 종류별 메타데이터 검사
 - 빈 문자열을 거부하는 폼 검증
@@ -13,10 +17,11 @@
 
 ## 코드를 읽는 순서
 
-1. `lib/trip-types.ts`에서 `ScheduleItem`의 세 종류를 비교합니다.
-2. `scheduleDescription`에서 `item.kind`에 따라 사용할 수 있는 속성이 달라지는지 확인합니다.
-3. `addSchedule`에서 폼 값이 `ScheduleItem`으로 변환되는 과정을 따라갑니다.
-4. `setDays`에서 배열과 객체를 직접 변경하지 않고 새 값으로 만드는 방식을 확인합니다.
+1. `features/trips/model/trip.ts`에서 `ScheduleItem`의 세 종류를 비교합니다.
+2. `features/trips/data/sample-trip.ts`가 해당 타입을 어떻게 사용하는지 확인합니다.
+3. `schedule-timeline.tsx`의 `scheduleDescription`에서 `item.kind`에 따라 사용할 수 있는 속성이 달라지는지 확인합니다.
+4. `trip-planner.tsx`의 `appendSchedule`에서 폼 값이 `ScheduleItem`으로 변환되는 과정을 따라갑니다.
+5. `setDays`에서 배열과 객체를 직접 변경하지 않고 새 값으로 만드는 방식을 확인합니다.
 
 ## 다음 단계
 

@@ -1,5 +1,6 @@
-import { TripPlanner } from "./trip-planner";
+import { redirect } from "next/navigation";
+import { SAMPLE_TRIP_ID } from "@/features/trips/data/sample-trip";
 
 export default function Home() {
-  return <TripPlanner />;
+  redirect(`/trips/${SAMPLE_TRIP_ID}`);
 }
