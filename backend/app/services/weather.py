@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from .schemas import WeatherForecast
+from ..domain.schemas import WeatherForecast
 
 
 def _get_json(url: str, params: dict[str, str | int | float]) -> dict:

@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from backend.app import database
+from backend.app.infrastructure import database
 from backend.app.main import app
 
 

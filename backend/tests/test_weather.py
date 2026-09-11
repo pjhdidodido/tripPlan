@@ -2,7 +2,7 @@ import unittest
 from datetime import date, timedelta
 from unittest.mock import patch
 
-from backend.app.weather import get_weather_forecast
+from backend.app.services.weather import get_weather_forecast
 
 
 class WeatherServiceTest(unittest.TestCase):
@@ -21,7 +21,7 @@ class WeatherServiceTest(unittest.TestCase):
                 }
             },
         ]
-        with patch("backend.app.weather._get_json", side_effect=responses):
+        with patch("backend.app.services.weather._get_json", side_effect=responses):
             result = get_weather_forecast("교토", start.isoformat(), end.isoformat())
 
         self.assertEqual(result.status, "forecast")

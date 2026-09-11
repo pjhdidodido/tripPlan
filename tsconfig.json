@@ -23,8 +23,17 @@
       }
     ],
     "paths": {
+      "@/components/*": [
+        "./src/shared/components/*"
+      ],
+      "@/hooks/*": [
+        "./src/shared/hooks/*"
+      ],
+      "@/lib/*": [
+        "./src/shared/lib/*"
+      ],
       "@/*": [
-        "./*"
+        "./src/*"
       ]
     },
     "types": [

@@ -9,9 +9,9 @@ from uuid import uuid4
 
 from pydantic import TypeAdapter
 
-from .schemas import ChecklistItem, ChecklistItemCreate, ChecklistItemUpdate, Reservation, ReservationCreate, ReservationUpdate, ScheduleComment, ScheduleCommentCreate, ScheduleCreate, ScheduleItem, ScheduleUpdate, Trip, TripCreate, TripDay
+from ..domain.schemas import ChecklistItem, ChecklistItemCreate, ChecklistItemUpdate, Reservation, ReservationCreate, ReservationUpdate, ScheduleComment, ScheduleCommentCreate, ScheduleCreate, ScheduleItem, ScheduleUpdate, Trip, TripCreate, TripDay
 
-DEFAULT_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "tripweave.db"
+DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "tripweave.db"
 DB_PATH = Path(os.getenv("TRIPWEAVE_DB_PATH", DEFAULT_DB_PATH))
 schedule_item_adapter = TypeAdapter(ScheduleItem)
 
