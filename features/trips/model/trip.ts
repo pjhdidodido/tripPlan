@@ -80,3 +80,27 @@ export type WeatherForecast = {
   days: WeatherDay[];
   message?: string;
 };
+
+export type ChecklistItem = {
+  id: string;
+  owner?: string;
+  title: string;
+  checked: boolean;
+};
+
+export type ReservationKind = "stay" | "flight" | "train" | "ticket" | "other";
+
+export type Reservation = {
+  id: string;
+  kind: ReservationKind;
+  title: string;
+  provider?: string;
+  startAt?: string;
+  confirmationNumber?: string;
+  address?: string;
+  link?: string;
+  memo?: string;
+  imageUrl?: string;
+};
+
+export type ReservationInput = Omit<Reservation, "id" | "imageUrl">;

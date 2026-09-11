@@ -5,32 +5,45 @@ import {
   CalendarDays,
   ChevronDown,
   MapPin,
+  PanelRightClose,
+  PanelRightOpen,
   Sparkles,
   Users,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import {
+  createChecklistItem,
+  createReservation as createReservationRequest,
   createTrip as createTripRequest,
   createScheduleComment,
   createTripSchedule,
+  deleteChecklistItem,
+  deleteReservation as deleteReservationRequest,
+  deleteReservationImage,
   deleteScheduleImage,
   deleteTrip as deleteTripRequest,
   deleteTripSchedule,
+  getTripChecklist,
   getTripDays,
   getTripWeather,
+  getTripReservations,
   getTrips,
-  updateTripBudget,
+  updateChecklistItem,
+  updateReservation as updateReservationRequest,
   updateTripMembers,
   updateTripSchedule,
   uploadScheduleImage,
+  uploadReservationImage,
 } from "../api/trip-api";
 import type {
+  ChecklistItem,
   CreateTripInput,
   NewScheduleInput,
+  Reservation,
+  ReservationInput,
   ScheduleItem,
   ScheduleKind,
   Trip,
@@ -38,9 +51,10 @@ import type {
   WeatherForecast,
 } from "../model/trip";
 import { AddScheduleDialog } from "./add-schedule-dialog";
+import { ChecklistBoard } from "./checklist-board";
 import { EditScheduleDialog } from "./edit-schedule-dialog";
-import { ManageBudgetDialog } from "./manage-budget-dialog";
 import { ManageMembersDialog } from "./manage-members-dialog";
+import { ReservationVault } from "./reservation-vault";
 import { ScheduleDetailDialog } from "./schedule-detail-dialog";
 import { ScheduleTimeline } from "./schedule-timeline";
 import { TripSwitcher } from "./trip-switcher";
@@ -60,6 +74,10 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
   const router = useRouter();
   const [trips, setTrips] = useState<Trip[]>([]);
   const [days, setDays] = useState<Awaited<ReturnType<typeof getTripDays>>>([]);
+  const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
+  const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [activeView, setActiveView] = useState<"schedule" | "checklist" | "reservations">("schedule");
+  const [insightOpen, setInsightOpen] = useState(true);
   const [activeDayId, setActiveDayId] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<ScheduleItem | null>(null);
@@ -91,6 +109,20 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
         setActiveDayId("");
         if (tripId !== "empty")
           toast.error("선택한 여행의 일정을 불러오지 못했어요.");
+      });
+    void getTripChecklist(tripId, controller.signal)
+      .then(setChecklist)
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setChecklist([]);
+        if (tripId !== "empty") toast.error("체크리스트를 불러오지 못했어요.");
+      });
+    void getTripReservations(tripId, controller.signal)
+      .then(setReservations)
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setReservations([]);
+        if (tripId !== "empty") toast.error("예약 정보를 불러오지 못했어요.");
       });
     return () => controller.abort();
   }, [tripId]);
@@ -141,17 +173,7 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
       setTrips((current) =>
         current.map((trip) => (trip.id === updated.id ? updated : trip)),
       );
-    },
-    [currentTrip],
-  );
-
-  const saveBudget = useCallback(
-    async (budget: number) => {
-      if (!currentTrip) return;
-      const updated = await updateTripBudget(currentTrip.id, { budget });
-      setTrips((current) =>
-        current.map((trip) => (trip.id === updated.id ? updated : trip)),
-      );
+      setChecklist(await getTripChecklist(currentTrip.id));
     },
     [currentTrip],
   );
@@ -224,6 +246,48 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
     const created = await createScheduleComment(tripId, dayId, itemId, member, content);
     setDays((current) => current.map((day) => day.id === dayId ? { ...day, items: day.items.map((item) => item.id === itemId ? { ...item, comments: [...item.comments, created] } : item) } : day));
     setDetailItem((current) => current?.id === itemId ? { ...current, comments: [...current.comments, created] } : current);
+  }, [tripId]);
+
+  const addChecklistItem = useCallback(async (title: string, owner?: string) => {
+    const created = await createChecklistItem(tripId, title, owner);
+    setChecklist((current) => [...current, created]);
+  }, [tripId]);
+
+  const saveChecklistItem = useCallback(async (item: ChecklistItem) => {
+    const updated = await updateChecklistItem(tripId, item);
+    setChecklist((current) => current.map((candidate) => candidate.id === updated.id ? updated : candidate));
+  }, [tripId]);
+
+  const removeChecklistItem = useCallback(async (itemId: string) => {
+    await deleteChecklistItem(tripId, itemId);
+    setChecklist((current) => current.filter((item) => item.id !== itemId));
+  }, [tripId]);
+
+  const addReservation = useCallback(async (input: ReservationInput) => {
+    const created = await createReservationRequest(tripId, input);
+    setReservations((current) => [...current, created].sort((a, b) => (a.startAt ?? "9999").localeCompare(b.startAt ?? "9999")));
+  }, [tripId]);
+
+  const saveReservation = useCallback(async (reservationId: string, input: ReservationInput) => {
+    const updated = await updateReservationRequest(tripId, reservationId, input);
+    setReservations((current) => current.map((item) => item.id === updated.id ? updated : item).sort((a, b) => (a.startAt ?? "9999").localeCompare(b.startAt ?? "9999")));
+  }, [tripId]);
+
+  const removeReservation = useCallback(async (reservationId: string) => {
+    await deleteReservationRequest(tripId, reservationId);
+    setReservations((current) => current.filter((item) => item.id !== reservationId));
+  }, [tripId]);
+
+  const saveReservationImage = useCallback(async (reservationId: string, file: File) => {
+    const updated = await uploadReservationImage(tripId, reservationId, file);
+    setReservations((current) => current.map((item) => item.id === updated.id ? updated : item));
+    return updated;
+  }, [tripId]);
+
+  const removeReservationImage = useCallback(async (reservationId: string) => {
+    const updated = await deleteReservationImage(tripId, reservationId);
+    setReservations((current) => current.map((item) => item.id === updated.id ? updated : item));
+    return updated;
   }, [tripId]);
 
   const deleteSchedule = useCallback(
@@ -338,10 +402,6 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
           86400000,
       ) + 1
     : 0;
-  const plannedCost = useMemo(() => days.reduce((total, day) => total + day.items.reduce((dayTotal, item) => dayTotal + item.preCost, 0), 0), [days]);
-  const remainingBudget = (currentTrip?.budget ?? 0) - plannedCost;
-  const budgetProgress = currentTrip?.budget ? Math.min(100, Math.round((plannedCost / currentTrip.budget) * 100)) : 0;
-
   return (
     <main className="min-h-screen bg-background text-foreground">
       <Toaster richColors position="bottom-center" />
@@ -360,17 +420,27 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
             onCreate={createNewTrip}
             onDelete={removeTrip}
           />
-          <a className="active" href="#plan">
-            여행 계획
-          </a>
-          <a href="#budget">공동 경비</a>
+          <button className={`nav-tab ${activeView === "schedule" ? "active" : ""}`} type="button" onClick={() => setActiveView("schedule")}>여행 일정</button>
+          <button className={`nav-tab ${activeView === "checklist" ? "active" : ""}`} type="button" onClick={() => setActiveView("checklist")}>체크리스트</button>
+          <button className={`nav-tab ${activeView === "reservations" ? "active" : ""}`} type="button" onClick={() => setActiveView("reservations")}>예약 보관함</button>
         </nav>
-        <Button className="invite-button">
-          <Users /> 공유하기
-        </Button>
+        <div className="header-actions">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="insight-toggle"
+            aria-label={insightOpen ? "오른쪽 패널 접기" : "오른쪽 패널 펼치기"}
+            aria-expanded={insightOpen}
+            onClick={() => setInsightOpen((current) => !current)}
+          >
+            {insightOpen ? <PanelRightClose /> : <PanelRightOpen />}
+          </Button>
+          <Button className="invite-button"><Users /> 공유하기</Button>
+        </div>
       </header>
 
-      <div className="app-shell">
+      <div className={`app-shell ${insightOpen ? "" : "insight-collapsed"}`}>
         <aside className="trip-rail" aria-label="여행 정보">
           <div>
             <p className="eyebrow">선택한 여행</p>
@@ -414,29 +484,6 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
               <p>{currentTrip.members.length}명이 계획 중</p>
             </div>
           )}
-          {currentTrip && (
-            <div className="budget-mini" id="budget">
-              <div className="people-heading">
-                <p className="eyebrow">공동 예산</p>
-                <ManageBudgetDialog
-                  key={currentTrip.id}
-                  trip={currentTrip}
-                  onSave={saveBudget}
-                />
-              </div>
-              <strong>₩{currentTrip.budget.toLocaleString("ko-KR")}</strong>
-              <Progress value={budgetProgress} aria-label={`공동 예산 ${budgetProgress}% 사용 예정`} />
-              <div className="budget-row">
-                <span>일정 예상 비용</span>
-                <span>₩{plannedCost.toLocaleString("ko-KR")}</span>
-              </div>
-              <div className={`budget-row budget-remaining ${remainingBudget < 0 ? "over" : ""}`}>
-                <span>{remainingBudget < 0 ? "예산 초과" : "남은 금액"}</span>
-                <strong>₩{Math.abs(remainingBudget).toLocaleString("ko-KR")}</strong>
-              </div>
-            </div>
-
-          )}
           <button
             className="switch-trip"
             onClick={() =>
@@ -450,7 +497,7 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
         </aside>
 
         <section className="plan-canvas" id="plan">
-          {currentTrip && activeDay ? (
+          {currentTrip && activeDay && activeView === "schedule" ? (
             <>
               <div className="plan-heading">
                 <div>
@@ -529,6 +576,23 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
                 }}
               />
             </>
+          ) : currentTrip && activeView === "checklist" ? (
+            <ChecklistBoard
+              members={currentTrip.members}
+              items={checklist}
+              onCreate={addChecklistItem}
+              onUpdate={saveChecklistItem}
+              onDelete={removeChecklistItem}
+            />
+          ) : currentTrip && activeView === "reservations" ? (
+            <ReservationVault
+              reservations={reservations}
+              onCreate={addReservation}
+              onUpdate={saveReservation}
+              onDelete={removeReservation}
+              onUploadImage={saveReservationImage}
+              onDeleteImage={removeReservationImage}
+            />
           ) : (
             <div className="no-trip">
               <MapPin />
@@ -550,7 +614,7 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
           )}
         </section>
 
-        <aside className="insight-rail">
+        <aside className="insight-rail" aria-hidden={!insightOpen}>
           <div className="destination-card">
             <div
               className={`destination-image ${currentTrip?.id === "kyoto-autumn" ? "kyoto" : "generic"}`}

@@ -30,6 +30,50 @@ class TripBudgetUpdate(BaseModel):
     budget: int = Field(ge=0)
 
 
+class ChecklistItem(BaseModel):
+    id: str
+    owner: str | None = None
+    title: str
+    checked: bool
+
+
+class ChecklistItemCreate(BaseModel):
+    owner: str | None = Field(default=None, max_length=40)
+    title: str = Field(min_length=1, max_length=120)
+
+
+class ChecklistItemUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    checked: bool
+
+
+ReservationKind = Literal["stay", "flight", "train", "ticket", "other"]
+
+
+class ReservationBase(BaseModel):
+    kind: ReservationKind
+    title: str = Field(min_length=1, max_length=120)
+    provider: str | None = Field(default=None, max_length=120)
+    startAt: str | None = None
+    confirmationNumber: str | None = Field(default=None, max_length=120)
+    address: str | None = Field(default=None, max_length=300)
+    link: str | None = Field(default=None, max_length=1000)
+    memo: str | None = Field(default=None, max_length=1000)
+
+
+class Reservation(ReservationBase):
+    id: str
+    imageUrl: str | None = None
+
+
+class ReservationCreate(ReservationBase):
+    pass
+
+
+class ReservationUpdate(ReservationBase):
+    pass
+
+
 class ScheduleComment(BaseModel):
     id: str
     member: str

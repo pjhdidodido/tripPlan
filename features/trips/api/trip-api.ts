@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CreateTripInput, NewScheduleInput, ScheduleComment, ScheduleItem, Trip, TripDay, UpdateScheduleInput, UpdateTripBudgetInput, UpdateTripMembersInput, WeatherForecast } from "../model/trip";
+import type { ChecklistItem, CreateTripInput, NewScheduleInput, Reservation, ReservationInput, ScheduleComment, ScheduleItem, Trip, TripDay, UpdateScheduleInput, UpdateTripBudgetInput, UpdateTripMembersInput, WeatherForecast } from "../model/trip";
 
 const scheduleCommentSchema = z.object({ id: z.string(), member: z.string(), content: z.string(), createdAt: z.string() });
 
@@ -25,6 +25,20 @@ const weatherSchema = z.object({
   locationName: z.string(),
   days: z.array(z.object({ date: z.string(), weatherCode: z.number(), temperatureMax: z.number(), temperatureMin: z.number(), precipitationProbability: z.number() })),
   message: z.string().nullish().transform((value) => value ?? undefined),
+});
+const checklistItemSchema = z.object({ id: z.string(), owner: z.string().nullish().transform((value) => value ?? undefined), title: z.string(), checked: z.boolean() });
+const optionalText = z.string().nullish().transform((value) => value ?? undefined);
+const reservationSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["stay", "flight", "train", "ticket", "other"]),
+  title: z.string(),
+  provider: optionalText,
+  startAt: optionalText,
+  confirmationNumber: optionalText,
+  address: optionalText,
+  link: optionalText,
+  memo: optionalText,
+  imageUrl: optionalText,
 });
 
 const API_URL = (process.env.NEXT_PUBLIC_TRIPWEAVE_API_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
@@ -102,4 +116,46 @@ export async function createScheduleComment(tripId: string, dayId: string, itemI
 
 export async function getTripWeather(tripId: string, signal?: AbortSignal): Promise<WeatherForecast> {
   return weatherSchema.parse(await request(`/api/trips/${encodeURIComponent(tripId)}/weather`, { signal }));
+}
+
+export async function getTripChecklist(tripId: string, signal?: AbortSignal): Promise<ChecklistItem[]> {
+  return z.array(checklistItemSchema).parse(await request(`/api/trips/${encodeURIComponent(tripId)}/checklist`, { signal }));
+}
+
+export async function createChecklistItem(tripId: string, title: string, owner?: string): Promise<ChecklistItem> {
+  return checklistItemSchema.parse(await request(`/api/trips/${encodeURIComponent(tripId)}/checklist`, { method: "POST", body: JSON.stringify({ title, owner }) }));
+}
+
+export async function updateChecklistItem(tripId: string, item: ChecklistItem): Promise<ChecklistItem> {
+  return checklistItemSchema.parse(await request(`/api/trips/${encodeURIComponent(tripId)}/checklist/${encodeURIComponent(item.id)}`, { method: "PATCH", body: JSON.stringify({ title: item.title, checked: item.checked }) }));
+}
+
+export async function deleteChecklistItem(tripId: string, itemId: string): Promise<void> {
+  await request(`/api/trips/${encodeURIComponent(tripId)}/checklist/${encodeURIComponent(itemId)}`, { method: "DELETE" });
+}
+
+export async function getTripReservations(tripId: string, signal?: AbortSignal): Promise<Reservation[]> {
+  return z.array(reservationSchema).parse(await request(`/api/trips/${encodeURIComponent(tripId)}/reservations`, { signal }));
+}
+
+export async function createReservation(tripId: string, input: ReservationInput): Promise<Reservation> {
+  return reservationSchema.parse(await request(`/api/trips/${encodeURIComponent(tripId)}/reservations`, { method: "POST", body: JSON.stringify(input) }));
+}
+
+export async function updateReservation(tripId: string, reservationId: string, input: ReservationInput): Promise<Reservation> {
+  return reservationSchema.parse(await request(`/api/trips/${encodeURIComponent(tripId)}/reservations/${encodeURIComponent(reservationId)}`, { method: "PATCH", body: JSON.stringify(input) }));
+}
+
+export async function deleteReservation(tripId: string, reservationId: string): Promise<void> {
+  await request(`/api/trips/${encodeURIComponent(tripId)}/reservations/${encodeURIComponent(reservationId)}`, { method: "DELETE" });
+}
+
+export async function uploadReservationImage(tripId: string, reservationId: string, file: File): Promise<Reservation> {
+  const response = await fetch(`${API_URL}/api/trips/${encodeURIComponent(tripId)}/reservations/${encodeURIComponent(reservationId)}/image`, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+  if (!response.ok) throw new Error(`바우처 업로드 실패 (${response.status})`);
+  return reservationSchema.parse(await response.json());
+}
+
+export async function deleteReservationImage(tripId: string, reservationId: string): Promise<Reservation> {
+  return reservationSchema.parse(await request(`/api/trips/${encodeURIComponent(tripId)}/reservations/${encodeURIComponent(reservationId)}/image`, { method: "DELETE" }));
 }

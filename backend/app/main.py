@@ -8,8 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from . import database
-from .database import add_schedule_comment, create_schedule, create_trip, delete_schedule, delete_trip, get_trip, initialize_database, list_trip_days, list_trips, replace_trip_members, set_schedule_image, update_schedule, update_trip_budget
-from .schemas import ScheduleComment, ScheduleCommentCreate, ScheduleCreate, ScheduleItem, ScheduleUpdate, Trip, TripBudgetUpdate, TripCreate, TripDay, TripMembersUpdate, WeatherForecast
+from .database import add_schedule_comment, create_checklist_item, create_reservation, create_schedule, create_trip, delete_checklist_item, delete_reservation, delete_schedule, delete_trip, get_trip, initialize_database, list_checklist_items, list_reservations, list_trip_days, list_trips, replace_trip_members, set_reservation_image, set_schedule_image, update_checklist_item, update_reservation, update_schedule, update_trip_budget
+from .schemas import ChecklistItem, ChecklistItemCreate, ChecklistItemUpdate, Reservation, ReservationCreate, ReservationUpdate, ScheduleComment, ScheduleCommentCreate, ScheduleCreate, ScheduleItem, ScheduleUpdate, Trip, TripBudgetUpdate, TripCreate, TripDay, TripMembersUpdate, WeatherForecast
 from .weather import get_weather_forecast
 
 
@@ -51,6 +51,107 @@ def get_trip_weather(trip_id: str) -> WeatherForecast:
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
     return get_weather_forecast(trip.destination, trip.startDate, trip.endDate)
+
+
+@app.get("/api/trips/{trip_id}/checklist", response_model=list[ChecklistItem])
+def get_trip_checklist(trip_id: str) -> list[ChecklistItem]:
+    items = list_checklist_items(trip_id)
+    if items is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    return items
+
+
+@app.post("/api/trips/{trip_id}/checklist", response_model=ChecklistItem, status_code=status.HTTP_201_CREATED)
+def post_trip_checklist_item(trip_id: str, data: ChecklistItemCreate) -> ChecklistItem:
+    try:
+        item = create_checklist_item(trip_id, data)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if item is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    return item
+
+
+@app.patch("/api/trips/{trip_id}/checklist/{item_id}", response_model=ChecklistItem)
+def patch_trip_checklist_item(trip_id: str, item_id: str, data: ChecklistItemUpdate) -> ChecklistItem:
+    item = update_checklist_item(trip_id, item_id, data)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Checklist item not found")
+    return item
+
+
+@app.delete("/api/trips/{trip_id}/checklist/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_trip_checklist_item(trip_id: str, item_id: str) -> Response:
+    if not delete_checklist_item(trip_id, item_id):
+        raise HTTPException(status_code=404, detail="Checklist item not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/api/trips/{trip_id}/reservations", response_model=list[Reservation])
+def get_trip_reservations(trip_id: str) -> list[Reservation]:
+    reservations = list_reservations(trip_id)
+    if reservations is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    return reservations
+
+
+@app.post("/api/trips/{trip_id}/reservations", response_model=Reservation, status_code=status.HTTP_201_CREATED)
+def post_trip_reservation(trip_id: str, data: ReservationCreate) -> Reservation:
+    reservation = create_reservation(trip_id, data)
+    if reservation is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    return reservation
+
+
+@app.patch("/api/trips/{trip_id}/reservations/{reservation_id}", response_model=Reservation)
+def patch_trip_reservation(trip_id: str, reservation_id: str, data: ReservationUpdate) -> Reservation:
+    reservation = update_reservation(trip_id, reservation_id, data)
+    if reservation is None:
+        raise HTTPException(status_code=404, detail="Reservation not found")
+    return reservation
+
+
+@app.delete("/api/trips/{trip_id}/reservations/{reservation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_trip_reservation(trip_id: str, reservation_id: str) -> Response:
+    deleted, image_filename = delete_reservation(trip_id, reservation_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Reservation not found")
+    if image_filename:
+        (UPLOAD_DIR / Path(image_filename).name).unlink(missing_ok=True)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.put("/api/trips/{trip_id}/reservations/{reservation_id}/image", response_model=Reservation)
+async def put_reservation_image(trip_id: str, reservation_id: str, request: Request) -> Reservation:
+    content_type = request.headers.get("content-type", "")
+    extension = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}.get(content_type)
+    if extension is None:
+        raise HTTPException(status_code=415, detail="JPG, PNG, WEBP, GIF 이미지만 업로드할 수 있습니다")
+    content = await request.body()
+    if not content or len(content) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="이미지는 8MB 이하여야 합니다")
+    filename = f"{uuid4().hex}{extension}"
+    path = UPLOAD_DIR / filename
+    path.write_bytes(content)
+    result = set_reservation_image(trip_id, reservation_id, filename)
+    if result is None:
+        path.unlink(missing_ok=True)
+        raise HTTPException(status_code=404, detail="Reservation not found")
+    reservation, previous = result
+    if previous:
+        (UPLOAD_DIR / Path(previous).name).unlink(missing_ok=True)
+    return reservation
+
+
+@app.delete("/api/trips/{trip_id}/reservations/{reservation_id}/image", response_model=Reservation)
+def remove_reservation_image(trip_id: str, reservation_id: str) -> Reservation:
+    result = set_reservation_image(trip_id, reservation_id, None)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Reservation not found")
+    reservation, previous = result
+    if previous:
+        (UPLOAD_DIR / Path(previous).name).unlink(missing_ok=True)
+    return reservation
 
 
 @app.post("/api/trips", response_model=Trip, status_code=status.HTTP_201_CREATED)

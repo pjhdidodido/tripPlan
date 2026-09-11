@@ -119,6 +119,89 @@ class TripApiTest(unittest.TestCase):
         self.assertEqual(deleted.status_code, 204)
         self.assertEqual(self.client.get(f"/api/trips/{trip['id']}/days").status_code, 404)
 
+    def test_shared_and_member_checklists_are_persisted(self) -> None:
+        common = self.client.post(
+            "/api/trips/kyoto-autumn/checklist",
+            json={"title": "공용 상비약"},
+        )
+        personal = self.client.post(
+            "/api/trips/kyoto-autumn/checklist",
+            json={"title": "여권", "owner": "민서"},
+        )
+        self.assertEqual(common.status_code, 201)
+        self.assertEqual(personal.status_code, 201)
+        self.assertIsNone(common.json()["owner"])
+        self.assertEqual(personal.json()["owner"], "민서")
+
+        updated = self.client.patch(
+            f"/api/trips/kyoto-autumn/checklist/{personal.json()['id']}",
+            json={"title": "여권과 지갑", "checked": True},
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertTrue(updated.json()["checked"])
+
+        items = self.client.get("/api/trips/kyoto-autumn/checklist").json()
+        self.assertEqual([item["title"] for item in items], ["공용 상비약", "여권과 지갑"])
+
+        invalid_owner = self.client.post(
+            "/api/trips/kyoto-autumn/checklist",
+            json={"title": "카메라", "owner": "동행하지 않는 사람"},
+        )
+        self.assertEqual(invalid_owner.status_code, 400)
+
+        deleted = self.client.delete(f"/api/trips/kyoto-autumn/checklist/{common.json()['id']}")
+        self.assertEqual(deleted.status_code, 204)
+
+        self.client.put("/api/trips/kyoto-autumn/members", json={"members": ["준호"]})
+        moved_item = self.client.get("/api/trips/kyoto-autumn/checklist").json()[0]
+        self.assertIsNone(moved_item["owner"])
+
+    def test_reservation_crud_and_voucher_replacement(self) -> None:
+        created = self.client.post(
+            "/api/trips/kyoto-autumn/reservations",
+            json={
+                "kind": "stay",
+                "title": "교토역 호텔",
+                "provider": "TripWeave Hotel",
+                "startAt": "2026-10-17T15:00",
+                "confirmationNumber": "TW-1024",
+                "address": "교토역 앞",
+                "link": "https://example.com/reservation",
+                "memo": "체크인 시 여권 제시",
+            },
+        )
+        self.assertEqual(created.status_code, 201)
+        reservation_id = created.json()["id"]
+
+        updated = self.client.patch(
+            f"/api/trips/kyoto-autumn/reservations/{reservation_id}",
+            json={**created.json(), "kind": "ticket", "title": "교토 패스"},
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.json()["kind"], "ticket")
+
+        first_image = self.client.put(
+            f"/api/trips/kyoto-autumn/reservations/{reservation_id}/image",
+            content=b"first-voucher",
+            headers={"Content-Type": "image/png"},
+        )
+        second_image = self.client.put(
+            f"/api/trips/kyoto-autumn/reservations/{reservation_id}/image",
+            content=b"second-voucher",
+            headers={"Content-Type": "image/jpeg"},
+        )
+        self.assertEqual(first_image.status_code, 200)
+        self.assertEqual(second_image.status_code, 200)
+        self.assertNotEqual(first_image.json()["imageUrl"], second_image.json()["imageUrl"])
+
+        persisted = self.client.get("/api/trips/kyoto-autumn/reservations").json()
+        self.assertEqual(persisted[0]["confirmationNumber"], "TW-1024")
+        self.assertEqual(persisted[0]["imageUrl"], second_image.json()["imageUrl"])
+
+        deleted = self.client.delete(f"/api/trips/kyoto-autumn/reservations/{reservation_id}")
+        self.assertEqual(deleted.status_code, 204)
+        self.assertEqual(self.client.get("/api/trips/kyoto-autumn/reservations").json(), [])
+
 
 if __name__ == "__main__":
     unittest.main()

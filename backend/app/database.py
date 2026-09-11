@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from pydantic import TypeAdapter
 
-from .schemas import ScheduleComment, ScheduleCommentCreate, ScheduleCreate, ScheduleItem, ScheduleUpdate, Trip, TripCreate, TripDay
+from .schemas import ChecklistItem, ChecklistItemCreate, ChecklistItemUpdate, Reservation, ReservationCreate, ReservationUpdate, ScheduleComment, ScheduleCommentCreate, ScheduleCreate, ScheduleItem, ScheduleUpdate, Trip, TripCreate, TripDay
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "tripweave.db"
 DB_PATH = Path(os.getenv("TRIPWEAVE_DB_PATH", DEFAULT_DB_PATH))
@@ -91,6 +91,33 @@ def initialize_database() -> None:
                 content TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (schedule_id) REFERENCES schedules(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS checklist_items (
+                id TEXT PRIMARY KEY,
+                trip_id TEXT NOT NULL,
+                owner_name TEXT,
+                title TEXT NOT NULL,
+                checked INTEGER NOT NULL DEFAULT 0,
+                position INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS reservations (
+                id TEXT PRIMARY KEY,
+                trip_id TEXT NOT NULL,
+                kind TEXT NOT NULL CHECK (kind IN ('stay', 'flight', 'train', 'ticket', 'other')),
+                title TEXT NOT NULL,
+                provider TEXT,
+                start_at TEXT,
+                confirmation_number TEXT,
+                address TEXT,
+                link TEXT,
+                memo TEXT,
+                image_filename TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE
             );
             """
         )
@@ -230,6 +257,11 @@ def replace_trip_members(trip_id: str, members: list[str]) -> Trip | None:
             "INSERT INTO trip_members (id, trip_id, name, position) VALUES (?, ?, ?, ?)",
             [(str(uuid4()), trip_id, name, position) for position, name in enumerate(cleaned)],
         )
+        placeholders = ",".join("?" for _ in cleaned)
+        database.execute(
+            f"UPDATE checklist_items SET owner_name = NULL WHERE trip_id = ? AND owner_name IS NOT NULL AND owner_name NOT IN ({placeholders})",
+            (trip_id, *cleaned),
+        )
         return _trip_from_row(database, row)
 
 # 예산 변경 함수
@@ -244,11 +276,14 @@ def update_trip_budget(trip_id: str, budget: int) -> Trip | None:
 def delete_trip(trip_id: str) -> bool:
     with connection() as database:
         image_rows = database.execute("SELECT image_filename FROM schedules WHERE trip_id = ? AND image_filename IS NOT NULL", (trip_id,)).fetchall()
+        reservation_image_rows = database.execute("SELECT image_filename FROM reservations WHERE trip_id = ? AND image_filename IS NOT NULL", (trip_id,)).fetchall()
         database.execute("DELETE FROM schedules WHERE trip_id = ?", (trip_id,))
+        database.execute("DELETE FROM checklist_items WHERE trip_id = ?", (trip_id,))
+        database.execute("DELETE FROM reservations WHERE trip_id = ?", (trip_id,))
         database.execute("DELETE FROM trip_days WHERE trip_id = ?", (trip_id,))
         database.execute("DELETE FROM trip_members WHERE trip_id = ?", (trip_id,))
         cursor = database.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
-    for image_row in image_rows:
+    for image_row in [*image_rows, *reservation_image_rows]:
         (DB_PATH.parent / "uploads" / image_row["image_filename"]).unlink(missing_ok=True)
     return cursor.rowcount > 0
 
@@ -418,3 +453,135 @@ def add_schedule_comment(trip_id: str, day_id: str, item_id: str, data: Schedule
         )
         row = database.execute("SELECT * FROM schedule_comments WHERE id = ?", (comment_id,)).fetchone()
         return ScheduleComment(id=row["id"], member=row["member_name"], content=row["content"], createdAt=row["created_at"])
+
+
+def _checklist_from_row(row: sqlite3.Row) -> ChecklistItem:
+    return ChecklistItem(id=row["id"], owner=row["owner_name"], title=row["title"], checked=bool(row["checked"]))
+
+
+def list_checklist_items(trip_id: str) -> list[ChecklistItem] | None:
+    with connection() as database:
+        trip = database.execute("SELECT 1 FROM trips WHERE id = ?", (trip_id,)).fetchone()
+        if trip is None:
+            return None
+        rows = database.execute(
+            "SELECT * FROM checklist_items WHERE trip_id = ? ORDER BY owner_name IS NOT NULL, owner_name, position, created_at",
+            (trip_id,),
+        ).fetchall()
+        return [_checklist_from_row(row) for row in rows]
+
+
+def create_checklist_item(trip_id: str, data: ChecklistItemCreate) -> ChecklistItem | None:
+    owner = data.owner.strip() if data.owner and data.owner.strip() else None
+    item_id = str(uuid4())
+    with connection() as database:
+        trip = database.execute("SELECT 1 FROM trips WHERE id = ?", (trip_id,)).fetchone()
+        if trip is None:
+            return None
+        if owner is not None:
+            member = database.execute("SELECT 1 FROM trip_members WHERE trip_id = ? AND name = ?", (trip_id, owner)).fetchone()
+            if member is None:
+                raise ValueError("Checklist owner must be a trip member")
+        position = database.execute(
+            "SELECT COALESCE(MAX(position), 0) + 1 AS next_position FROM checklist_items WHERE trip_id = ? AND owner_name IS ?",
+            (trip_id, owner),
+        ).fetchone()["next_position"]
+        database.execute(
+            "INSERT INTO checklist_items (id, trip_id, owner_name, title, checked, position) VALUES (?, ?, ?, ?, 0, ?)",
+            (item_id, trip_id, owner, data.title.strip(), position),
+        )
+        row = database.execute("SELECT * FROM checklist_items WHERE id = ?", (item_id,)).fetchone()
+        return _checklist_from_row(row)
+
+
+def update_checklist_item(trip_id: str, item_id: str, data: ChecklistItemUpdate) -> ChecklistItem | None:
+    with connection() as database:
+        cursor = database.execute(
+            "UPDATE checklist_items SET title = ?, checked = ? WHERE id = ? AND trip_id = ?",
+            (data.title.strip(), int(data.checked), item_id, trip_id),
+        )
+        if cursor.rowcount == 0:
+            return None
+        row = database.execute("SELECT * FROM checklist_items WHERE id = ?", (item_id,)).fetchone()
+        return _checklist_from_row(row)
+
+
+def delete_checklist_item(trip_id: str, item_id: str) -> bool:
+    with connection() as database:
+        cursor = database.execute("DELETE FROM checklist_items WHERE id = ? AND trip_id = ?", (item_id, trip_id))
+        return cursor.rowcount > 0
+
+
+def _optional_text(value: str | None) -> str | None:
+    return value.strip() if value and value.strip() else None
+
+
+def _reservation_from_row(row: sqlite3.Row) -> Reservation:
+    return Reservation(
+        id=row["id"],
+        kind=row["kind"],
+        title=row["title"],
+        provider=row["provider"],
+        startAt=row["start_at"],
+        confirmationNumber=row["confirmation_number"],
+        address=row["address"],
+        link=row["link"],
+        memo=row["memo"],
+        imageUrl=f"/uploads/{row['image_filename']}" if row["image_filename"] else None,
+    )
+
+
+def list_reservations(trip_id: str) -> list[Reservation] | None:
+    with connection() as database:
+        if database.execute("SELECT 1 FROM trips WHERE id = ?", (trip_id,)).fetchone() is None:
+            return None
+        rows = database.execute("SELECT * FROM reservations WHERE trip_id = ? ORDER BY start_at IS NULL, start_at, created_at", (trip_id,)).fetchall()
+        return [_reservation_from_row(row) for row in rows]
+
+
+def create_reservation(trip_id: str, data: ReservationCreate) -> Reservation | None:
+    reservation_id = str(uuid4())
+    with connection() as database:
+        if database.execute("SELECT 1 FROM trips WHERE id = ?", (trip_id,)).fetchone() is None:
+            return None
+        database.execute(
+            """INSERT INTO reservations
+            (id, trip_id, kind, title, provider, start_at, confirmation_number, address, link, memo)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (reservation_id, trip_id, data.kind, data.title.strip(), _optional_text(data.provider), _optional_text(data.startAt), _optional_text(data.confirmationNumber), _optional_text(data.address), _optional_text(data.link), _optional_text(data.memo)),
+        )
+        row = database.execute("SELECT * FROM reservations WHERE id = ?", (reservation_id,)).fetchone()
+        return _reservation_from_row(row)
+
+
+def update_reservation(trip_id: str, reservation_id: str, data: ReservationUpdate) -> Reservation | None:
+    with connection() as database:
+        cursor = database.execute(
+            """UPDATE reservations SET kind = ?, title = ?, provider = ?, start_at = ?,
+            confirmation_number = ?, address = ?, link = ?, memo = ? WHERE id = ? AND trip_id = ?""",
+            (data.kind, data.title.strip(), _optional_text(data.provider), _optional_text(data.startAt), _optional_text(data.confirmationNumber), _optional_text(data.address), _optional_text(data.link), _optional_text(data.memo), reservation_id, trip_id),
+        )
+        if cursor.rowcount == 0:
+            return None
+        row = database.execute("SELECT * FROM reservations WHERE id = ?", (reservation_id,)).fetchone()
+        return _reservation_from_row(row)
+
+
+def delete_reservation(trip_id: str, reservation_id: str) -> tuple[bool, str | None]:
+    with connection() as database:
+        row = database.execute("SELECT image_filename FROM reservations WHERE id = ? AND trip_id = ?", (reservation_id, trip_id)).fetchone()
+        if row is None:
+            return False, None
+        database.execute("DELETE FROM reservations WHERE id = ?", (reservation_id,))
+        return True, row["image_filename"]
+
+
+def set_reservation_image(trip_id: str, reservation_id: str, filename: str | None) -> tuple[Reservation, str | None] | None:
+    with connection() as database:
+        current = database.execute("SELECT * FROM reservations WHERE id = ? AND trip_id = ?", (reservation_id, trip_id)).fetchone()
+        if current is None:
+            return None
+        previous = current["image_filename"]
+        database.execute("UPDATE reservations SET image_filename = ? WHERE id = ?", (filename, reservation_id))
+        row = database.execute("SELECT * FROM reservations WHERE id = ?", (reservation_id,)).fetchone()
+        return _reservation_from_row(row), previous
