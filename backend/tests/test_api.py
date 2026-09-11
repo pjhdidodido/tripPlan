@@ -25,17 +25,52 @@ class TripApiTest(unittest.TestCase):
 
         created = self.client.post(
             "/api/trips/kyoto-autumn/days/day-1/schedules",
-            json={"title": "아침 산책", "time": "08:00", "kind": "place", "location": "교토역"},
+            json={"title": "아침 산책", "time": "08:00", "kind": "place", "location": "교토역", "memo": "숙소에서 도보 이동", "preCost": 30000},
         )
         self.assertEqual(created.status_code, 201)
+        self.assertEqual(created.json()["memo"], "숙소에서 도보 이동")
+        self.assertEqual(created.json()["preCost"], 30000)
         item_id = created.json()["id"]
 
         updated = self.client.patch(
             f"/api/trips/kyoto-autumn/days/day-1/schedules/{item_id}",
-            json={"title": "아침 산책 수정", "time": "08:30", "status": "confirmed"},
+            json={"title": "시장 아침 식사", "time": "08:30", "status": "confirmed", "kind": "meal", "location": "니시키 시장", "memo": "현금 준비", "preCost": 45000},
         )
         self.assertEqual(updated.status_code, 200)
-        self.assertEqual(updated.json()["title"], "아침 산책 수정")
+        self.assertEqual(updated.json()["title"], "시장 아침 식사")
+        self.assertEqual(updated.json()["kind"], "meal")
+        self.assertEqual(updated.json()["location"], "니시키 시장")
+        self.assertEqual(updated.json()["memo"], "현금 준비")
+        self.assertEqual(updated.json()["preCost"], 45000)
+
+        persisted = self.client.get("/api/trips/kyoto-autumn/days").json()[0]["items"]
+        self.assertEqual(persisted[0]["preCost"], 45000)
+
+        comment = self.client.post(
+            f"/api/trips/kyoto-autumn/days/day-1/schedules/{item_id}/comments",
+            json={"member": "민서", "content": "아침 일찍 만나요"},
+        )
+        self.assertEqual(comment.status_code, 201)
+        persisted = self.client.get("/api/trips/kyoto-autumn/days").json()[0]["items"]
+        self.assertEqual(persisted[0]["comments"][0]["member"], "민서")
+
+        first_image = self.client.put(
+            f"/api/trips/kyoto-autumn/days/day-1/schedules/{item_id}/image",
+            content=b"first-image",
+            headers={"Content-Type": "image/png"},
+        )
+        self.assertEqual(first_image.status_code, 200)
+        first_url = first_image.json()["imageUrl"]
+        second_image = self.client.put(
+            f"/api/trips/kyoto-autumn/days/day-1/schedules/{item_id}/image",
+            content=b"replacement-image",
+            headers={"Content-Type": "image/webp"},
+        )
+        self.assertEqual(second_image.status_code, 200)
+        self.assertNotEqual(second_image.json()["imageUrl"], first_url)
+        removed_image = self.client.delete(f"/api/trips/kyoto-autumn/days/day-1/schedules/{item_id}/image")
+        self.assertEqual(removed_image.status_code, 200)
+        self.assertIsNone(removed_image.json()["imageUrl"])
 
         deleted = self.client.delete(f"/api/trips/kyoto-autumn/days/day-1/schedules/{item_id}")
         self.assertEqual(deleted.status_code, 204)
@@ -77,6 +112,7 @@ class TripApiTest(unittest.TestCase):
         )
         self.assertEqual(budget_updated.status_code, 200)
         self.assertEqual(budget_updated.json()["budget"], 1800000)
+
         self.assertEqual(len(self.client.get("/api/trips/kyoto-autumn/days").json()[1]["items"]), 4)
 
         deleted = self.client.delete(f"/api/trips/{trip['id']}")

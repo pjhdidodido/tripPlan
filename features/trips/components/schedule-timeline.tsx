@@ -27,11 +27,12 @@ function scheduleDescription(item: ScheduleItem): string {
 type ScheduleTimelineProps = {
   items: ScheduleItem[];
   onCreate: () => void;
+  onView: (item: ScheduleItem) => void;
   onEdit: (item: ScheduleItem) => void;
   onDelete: (item: ScheduleItem) => Promise<void> | void;
 };
 
-export function ScheduleTimeline({ items, onCreate, onEdit, onDelete }: ScheduleTimelineProps) {
+export function ScheduleTimeline({ items, onCreate, onView, onEdit, onDelete }: ScheduleTimelineProps) {
   const [deletingItem, setDeletingItem] = useState<ScheduleItem | null>(null);
 
   if (items.length === 0) {
@@ -53,7 +54,20 @@ export function ScheduleTimeline({ items, onCreate, onEdit, onDelete }: Schedule
         const meta = kindMeta[item.kind];
         const Icon = meta.icon;
         return (
-          <article className="schedule-card" key={item.id}>
+          <article
+            className="schedule-card"
+            key={item.id}
+            onClick={() => onView(item)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onView(item);
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label={`${item.title} 일정 편집`}
+          >
             <time>{item.time}</time>
             <div className="timeline-node" style={{ color: meta.color }}>
               <Icon />
@@ -63,18 +77,30 @@ export function ScheduleTimeline({ items, onCreate, onEdit, onDelete }: Schedule
               <div className="schedule-title-row">
                 <h3>{item.title}</h3>
                 {item.status === "candidate"
-                  ? <span className="candidate">투표 중</span>
+                  ? <span className="candidate">후보</span>
                   : <span className="confirmed"><Check /> 확정</span>}
+                <span className="confirmed">
+
+                  {<strong>예상 {item.preCost.toLocaleString("ko-KR")}원</strong>}
+                </span>
               </div>
               <p>{scheduleDescription(item)}</p>
+              {(item.memo) && (
+                <div className="schedule-details">
+                  {item.memo && <span>{item.memo}</span>}
+
+                </div>
+              )}
             </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild><button className="schedule-actions" aria-label={`${item.title} 메뉴`}><MoreHorizontal /></button></DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => onEdit(item)}><Pencil /> 수정</DropdownMenuItem>
-                <DropdownMenuItem variant="destructive" onSelect={() => setDeletingItem(item)}><Trash2 /> 삭제</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <div onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild><button className="schedule-actions" aria-label={`${item.title} 메뉴`}><MoreHorizontal /></button></DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => onEdit(item)}><Pencil /> 수정</DropdownMenuItem>
+                  <DropdownMenuItem variant="destructive" onSelect={() => setDeletingItem(item)}><Trash2 /> 삭제</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </article>
         );
       })}

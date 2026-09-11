@@ -32,6 +32,9 @@ npm run dev
 - 장소·식사·이동을 구분하는 TypeScript 유니온
 - 후보 일정 추가 및 입력 검증
 - 일정 수정·삭제와 Python API 자동 저장
+- 일정별 사진 첨부·교체와 동행자 코멘트
+- 일정 예상 비용을 합산한 공동 예산 잔액 계산
+- Open-Meteo를 이용한 여행 기간 날씨 예보
 - SQLite 파일을 이용한 서버 측 영구 저장
 - AI 에이전트가 같은 일정 추가 흐름을 사용할 수 있는 WebMCP 도구
 
@@ -51,4 +54,4 @@ backend/                     FastAPI와 SQLite 백엔드
   app/schemas.py             Pydantic 요청·응답 모델
 ```
 
-여행, 동행인, 날짜, 일정은 `backend/data/tripweave.db`에 여행별로 저장됩니다. 프론트엔드나 브라우저를 다시 실행해도 유지되고, 같은 Python API에 접속한 브라우저는 같은 데이터를 봅니다. 배포할 때는 Python 서버에 영구 디스크를 연결하거나 PostgreSQL 또는 Cloudflare D1으로 저장소를 교체해야 합니다.
+여행, 동행인, 날짜, 일정, 코멘트는 `backend/data/tripweave.db`에 여행별로 저장되고 사진은 `backend/data/uploads`에 저장됩니다. 프론트엔드나 브라우저를 다시 실행해도 유지되고, 같은 Python API에 접속한 브라우저는 같은 데이터를 봅니다. 날씨는 [Open-Meteo](https://open-meteo.com/)의 위치 검색과 16일 예보를 사용하므로 여행 시작 16일 전부터 표시됩니다. 배포할 때는 Python 서버에 영구 디스크를 연결하거나 데이터베이스와 사진 저장소를 PostgreSQL, Cloudflare D1/R2 등으로 교체해야 합니다.

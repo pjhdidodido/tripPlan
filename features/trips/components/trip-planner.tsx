@@ -2,11 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ArrowUpRight,
   CalendarDays,
   ChevronDown,
-  CircleDollarSign,
-  Clock3,
   MapPin,
   Sparkles,
   Users,
@@ -18,14 +15,18 @@ import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import {
   createTrip as createTripRequest,
+  createScheduleComment,
   createTripSchedule,
+  deleteScheduleImage,
   deleteTrip as deleteTripRequest,
   deleteTripSchedule,
   getTripDays,
+  getTripWeather,
   getTrips,
   updateTripBudget,
   updateTripMembers,
   updateTripSchedule,
+  uploadScheduleImage,
 } from "../api/trip-api";
 import type {
   CreateTripInput,
@@ -34,13 +35,16 @@ import type {
   ScheduleKind,
   Trip,
   UpdateScheduleInput,
+  WeatherForecast,
 } from "../model/trip";
 import { AddScheduleDialog } from "./add-schedule-dialog";
 import { EditScheduleDialog } from "./edit-schedule-dialog";
 import { ManageBudgetDialog } from "./manage-budget-dialog";
 import { ManageMembersDialog } from "./manage-members-dialog";
+import { ScheduleDetailDialog } from "./schedule-detail-dialog";
 import { ScheduleTimeline } from "./schedule-timeline";
 import { TripSwitcher } from "./trip-switcher";
+import { TripWeatherCard } from "./trip-weather-card";
 
 type TripPlannerProps = { tripId: string };
 
@@ -59,6 +63,8 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
   const [activeDayId, setActiveDayId] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<ScheduleItem | null>(null);
+  const [detailItem, setDetailItem] = useState<ScheduleItem | null>(null);
+  const [weatherResult, setWeatherResult] = useState<{ tripId: string; data: WeatherForecast } | null>(null);
   const currentTrip = useMemo(
     () => trips.find((trip) => trip.id === tripId) ?? null,
     [trips, tripId],
@@ -85,6 +91,18 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
         setActiveDayId("");
         if (tripId !== "empty")
           toast.error("선택한 여행의 일정을 불러오지 못했어요.");
+      });
+    return () => controller.abort();
+  }, [tripId]);
+
+  useEffect(() => {
+    if (tripId === "empty") return;
+    const controller = new AbortController();
+    void getTripWeather(tripId, controller.signal)
+      .then((data) => setWeatherResult({ tripId, data }))
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setWeatherResult({ tripId, data: { status: "error", locationName: "", days: [], message: "날씨 정보를 불러오지 못했어요." } });
       });
     return () => controller.abort();
   }, [tripId]);
@@ -182,9 +200,31 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
             : day,
         ),
       );
+      setDetailItem((current) => current?.id === itemId ? updated : current);
     },
     [tripId],
   );
+
+  const replaceScheduleItem = useCallback((dayId: string, updated: ScheduleItem) => {
+    setDays((current) => current.map((day) => day.id === dayId ? { ...day, items: day.items.map((item) => item.id === updated.id ? updated : item) } : day));
+    setDetailItem((current) => current?.id === updated.id ? updated : current);
+  }, []);
+
+  const uploadImage = useCallback(async (dayId: string, itemId: string, file: File) => {
+    const updated = await uploadScheduleImage(tripId, dayId, itemId, file);
+    replaceScheduleItem(dayId, updated);
+  }, [replaceScheduleItem, tripId]);
+
+  const removeImage = useCallback(async (dayId: string, itemId: string) => {
+    const updated = await deleteScheduleImage(tripId, dayId, itemId);
+    replaceScheduleItem(dayId, updated);
+  }, [replaceScheduleItem, tripId]);
+
+  const addComment = useCallback(async (dayId: string, itemId: string, member: string, content: string) => {
+    const created = await createScheduleComment(tripId, dayId, itemId, member, content);
+    setDays((current) => current.map((day) => day.id === dayId ? { ...day, items: day.items.map((item) => item.id === itemId ? { ...item, comments: [...item.comments, created] } : item) } : day));
+    setDetailItem((current) => current?.id === itemId ? { ...current, comments: [...current.comments, created] } : current);
+  }, [tripId]);
 
   const deleteSchedule = useCallback(
     async (dayId: string, item: ScheduleItem) => {
@@ -298,6 +338,9 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
           86400000,
       ) + 1
     : 0;
+  const plannedCost = useMemo(() => days.reduce((total, day) => total + day.items.reduce((dayTotal, item) => dayTotal + item.preCost, 0), 0), [days]);
+  const remainingBudget = (currentTrip?.budget ?? 0) - plannedCost;
+  const budgetProgress = currentTrip?.budget ? Math.min(100, Math.round((plannedCost / currentTrip.budget) * 100)) : 0;
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -321,7 +364,6 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
             여행 계획
           </a>
           <a href="#budget">공동 경비</a>
-          <a href="#decisions">결정 보드</a>
         </nav>
         <Button className="invite-button">
           <Users /> 공유하기
@@ -383,10 +425,14 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
                 />
               </div>
               <strong>₩{currentTrip.budget.toLocaleString("ko-KR")}</strong>
-              <Progress value={0} aria-label="사용 내역 미등록" />
+              <Progress value={budgetProgress} aria-label={`공동 예산 ${budgetProgress}% 사용 예정`} />
               <div className="budget-row">
-                <span>사용 내역 미등록</span>
-                <span>₩0</span>
+                <span>일정 예상 비용</span>
+                <span>₩{plannedCost.toLocaleString("ko-KR")}</span>
+              </div>
+              <div className={`budget-row budget-remaining ${remainingBudget < 0 ? "over" : ""}`}>
+                <span>{remainingBudget < 0 ? "예산 초과" : "남은 금액"}</span>
+                <strong>₩{Math.abs(remainingBudget).toLocaleString("ko-KR")}</strong>
               </div>
             </div>
 
@@ -409,7 +455,7 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
               <div className="plan-heading">
                 <div>
                   <p className="kicker">
-                    <Sparkles /> 모두의 선택을 한 흐름으로
+                    <Sparkles /> 하나 둘 셋-! 화이팅!!
                   </p>
                   <h1>{currentTrip.destination} 일정</h1>
                 </div>
@@ -448,15 +494,27 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
                   <strong>{activeDay.items.length}개의 일정</strong>
                 </div>
                 <p>
-                  <span className="save-indicator">Python API에 자동 저장</span>{" "}
+                  <span className="save-indicator">일정 클릭 시 상세보기</span>{" "}
                   · 여행별로 독립된 일정입니다.
                 </p>
               </div>
               <ScheduleTimeline
                 items={activeDay.items}
                 onCreate={() => setIsOpen(true)}
+                onView={setDetailItem}
                 onEdit={setEditingItem}
                 onDelete={(item) => deleteSchedule(activeDayId, item)}
+              />
+              <ScheduleDetailDialog
+                key={detailItem?.id ?? "detail-closed"}
+                item={detailItem}
+                members={currentTrip.members}
+                open={detailItem !== null}
+                onOpenChange={(open) => { if (!open) setDetailItem(null); }}
+                onEdit={() => { if (detailItem) setEditingItem(detailItem); setDetailItem(null); }}
+                onUploadImage={(file) => detailItem ? uploadImage(activeDayId, detailItem.id, file) : Promise.resolve()}
+                onDeleteImage={() => detailItem ? removeImage(activeDayId, detailItem.id) : Promise.resolve()}
+                onAddComment={(member, content) => detailItem ? addComment(activeDayId, detailItem.id, member, content) : Promise.resolve()}
               />
               <EditScheduleDialog
                 key={editingItem?.id ?? "closed"}
@@ -506,45 +564,7 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
               <strong>{currentTrip?.title ?? "우리의 다음 장면"}</strong>
             </div>
           </div>
-          <section className="decision-card" id="decisions">
-            <div className="section-icon">
-              <CircleDollarSign />
-            </div>
-            <p className="eyebrow">오늘 결정할 것</p>
-            <h2>
-              {currentTrip?.id === "kyoto-autumn" ? (
-                <>
-                  료칸 조식,
-                  <br />
-                  추가할까요?
-                </>
-              ) : (
-                <>
-                  {currentTrip?.destination ?? "다음 여행"}의 첫 활동,
-                  <br />
-                  정해볼까요?
-                </>
-              )}
-            </h2>
-            <div className="vote-track">
-              <span style={{ width: "75%" }} />
-            </div>
-            <div className="vote-result">
-              <strong>찬성 3</strong>
-              <span>대기 1</span>
-            </div>
-            <Button variant="outline" className="vote-button">
-              투표 보러가기 <ArrowUpRight />
-            </Button>
-          </section>
-          <div className="weather-note">
-            <span>18°</span>
-            <div>
-              <strong>맑고 선선해요</strong>
-              <p>오후 강수 확률 10%</p>
-            </div>
-            <Clock3 />
-          </div>
+          {currentTrip && <TripWeatherCard weather={weatherResult?.tripId === tripId ? weatherResult.data : null} loading={weatherResult?.tripId !== tripId} />}
         </aside>
       </div>
     </main>

@@ -1,7 +1,18 @@
 import { z } from "zod";
-import type { CreateTripInput, NewScheduleInput, ScheduleItem, Trip, TripDay, UpdateScheduleInput, UpdateTripBudgetInput, UpdateTripMembersInput } from "../model/trip";
+import type { CreateTripInput, NewScheduleInput, ScheduleComment, ScheduleItem, Trip, TripDay, UpdateScheduleInput, UpdateTripBudgetInput, UpdateTripMembersInput, WeatherForecast } from "../model/trip";
 
-const scheduleBaseSchema = z.object({ id: z.string(), time: z.string(), title: z.string(), status: z.enum(["confirmed", "candidate"]) });
+const scheduleCommentSchema = z.object({ id: z.string(), member: z.string(), content: z.string(), createdAt: z.string() });
+
+const scheduleBaseSchema = z.object({
+  id: z.string(),
+  time: z.string(),
+  title: z.string(),
+  status: z.enum(["confirmed", "candidate"]),
+  memo: z.string().nullish().transform((value) => value ?? undefined),
+  preCost: z.number().int().nonnegative().default(0),
+  imageUrl: z.string().nullish().transform((value) => value ?? undefined),
+  comments: z.array(scheduleCommentSchema).default([]),
+});
 const scheduleItemSchema = z.discriminatedUnion("kind", [
   scheduleBaseSchema.extend({ kind: z.literal("place"), location: z.string(), durationMinutes: z.number() }),
   scheduleBaseSchema.extend({ kind: z.literal("meal"), location: z.string(), reservationName: z.string().nullish().transform((value) => value ?? undefined) }),
@@ -9,6 +20,12 @@ const scheduleItemSchema = z.discriminatedUnion("kind", [
 ]);
 const tripDaysSchema = z.array(z.object({ id: z.string(), label: z.string(), date: z.string(), items: z.array(scheduleItemSchema) }));
 const tripSchema = z.object({ id: z.string(), title: z.string(), destination: z.string(), startDate: z.string(), endDate: z.string(), members: z.array(z.string()), budget: z.number() });
+const weatherSchema = z.object({
+  status: z.enum(["forecast", "unavailable", "error"]),
+  locationName: z.string(),
+  days: z.array(z.object({ date: z.string(), weatherCode: z.number(), temperatureMax: z.number(), temperatureMin: z.number(), precipitationProbability: z.number() })),
+  message: z.string().nullish().transform((value) => value ?? undefined),
+});
 
 const API_URL = (process.env.NEXT_PUBLIC_TRIPWEAVE_API_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
 
@@ -57,4 +74,32 @@ export async function updateTripSchedule(tripId: string, dayId: string, itemId: 
 
 export async function deleteTripSchedule(tripId: string, dayId: string, itemId: string): Promise<void> {
   await request(`/api/trips/${encodeURIComponent(tripId)}/days/${encodeURIComponent(dayId)}/schedules/${encodeURIComponent(itemId)}`, { method: "DELETE" });
+}
+
+export function getApiAssetUrl(path: string): string {
+  return path.startsWith("http") ? path : `${API_URL}${path}`;
+}
+
+export async function uploadScheduleImage(tripId: string, dayId: string, itemId: string, file: File): Promise<ScheduleItem> {
+  const response = await fetch(`${API_URL}/api/trips/${encodeURIComponent(tripId)}/days/${encodeURIComponent(dayId)}/schedules/${encodeURIComponent(itemId)}/image`, {
+    method: "PUT",
+    headers: { "Content-Type": file.type },
+    body: file,
+  });
+  if (!response.ok) throw new Error(`이미지 업로드 실패 (${response.status})`);
+  return scheduleItemSchema.parse(await response.json());
+}
+
+export async function deleteScheduleImage(tripId: string, dayId: string, itemId: string): Promise<ScheduleItem> {
+  const result = await request(`/api/trips/${encodeURIComponent(tripId)}/days/${encodeURIComponent(dayId)}/schedules/${encodeURIComponent(itemId)}/image`, { method: "DELETE" });
+  return scheduleItemSchema.parse(result);
+}
+
+export async function createScheduleComment(tripId: string, dayId: string, itemId: string, member: string, content: string): Promise<ScheduleComment> {
+  const result = await request(`/api/trips/${encodeURIComponent(tripId)}/days/${encodeURIComponent(dayId)}/schedules/${encodeURIComponent(itemId)}/comments`, { method: "POST", body: JSON.stringify({ member, content }) });
+  return scheduleCommentSchema.parse(result);
+}
+
+export async function getTripWeather(tripId: string, signal?: AbortSignal): Promise<WeatherForecast> {
+  return weatherSchema.parse(await request(`/api/trips/${encodeURIComponent(tripId)}/weather`, { signal }));
 }

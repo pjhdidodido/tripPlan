@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from pydantic import TypeAdapter
 
-from .schemas import ScheduleCreate, ScheduleItem, ScheduleUpdate, Trip, TripCreate, TripDay
+from .schemas import ScheduleComment, ScheduleCommentCreate, ScheduleCreate, ScheduleItem, ScheduleUpdate, Trip, TripCreate, TripDay
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "tripweave.db"
 DB_PATH = Path(os.getenv("TRIPWEAVE_DB_PATH", DEFAULT_DB_PATH))
@@ -78,7 +78,19 @@ def initialize_database() -> None:
                 reservation_name TEXT,
                 from_location TEXT,
                 to_location TEXT,
+                memo TEXT,
+                pre_cost INTEGER NOT NULL DEFAULT 0,
+                image_filename TEXT,
                 FOREIGN KEY (trip_id, day_id) REFERENCES trip_days(trip_id, id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS schedule_comments (
+                id TEXT PRIMARY KEY,
+                schedule_id TEXT NOT NULL,
+                member_name TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (schedule_id) REFERENCES schedules(id) ON DELETE CASCADE
             );
             """
         )
@@ -87,6 +99,14 @@ def initialize_database() -> None:
             database.execute("ALTER TABLE trips ADD COLUMN budget INTEGER NOT NULL DEFAULT 0")
             database.execute("UPDATE trips SET budget = 1240000 WHERE id = 'kyoto-autumn'")
             database.execute("UPDATE trips SET budget = 800000 WHERE id = 'korea-weekend'")
+
+        schedule_columns = {row["name"] for row in database.execute("PRAGMA table_info(schedules)").fetchall()}
+        if "memo" not in schedule_columns:
+            database.execute("ALTER TABLE schedules ADD COLUMN memo TEXT")
+        if "pre_cost" not in schedule_columns:
+            database.execute("ALTER TABLE schedules ADD COLUMN pre_cost INTEGER NOT NULL DEFAULT 0")
+        if "image_filename" not in schedule_columns:
+            database.execute("ALTER TABLE schedules ADD COLUMN image_filename TEXT")
 
         seeded = database.execute("SELECT 1 FROM app_metadata WHERE key = 'initial_trips_seeded'").fetchone()
         if seeded:
@@ -123,7 +143,12 @@ def initialize_database() -> None:
                 ("a3", "kyoto-autumn", "day-2", "transport", "14:00", "철학의 길로 이동", "confirmed", None, None, None, "은각사", "난젠지"),
                 ("a4", "kyoto-autumn", "day-2", "place", "17:20", "가모강 노을 피크닉", "candidate", "데마치야나기", 90, None, None, None),
             ]
-            database.executemany("INSERT INTO schedules VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", schedules)
+            database.executemany(
+                """INSERT INTO schedules
+                (id, trip_id, day_id, kind, time, title, status, location, duration_minutes, reservation_name, from_location, to_location)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                schedules,
+            )
 
         korea_days = database.execute("SELECT 1 FROM trip_days WHERE trip_id = ? LIMIT 1", ("korea-weekend",)).fetchone()
         if not korea_days:
@@ -207,7 +232,7 @@ def replace_trip_members(trip_id: str, members: list[str]) -> Trip | None:
         )
         return _trip_from_row(database, row)
 
-
+# 예산 변경 함수
 def update_trip_budget(trip_id: str, budget: int) -> Trip | None:
     with connection() as database:
         cursor = database.execute("UPDATE trips SET budget = ? WHERE id = ?", (budget, trip_id))
@@ -216,18 +241,37 @@ def update_trip_budget(trip_id: str, budget: int) -> Trip | None:
         row = database.execute("SELECT * FROM trips WHERE id = ?", (trip_id,)).fetchone()
         return _trip_from_row(database, row)
 
-
 def delete_trip(trip_id: str) -> bool:
     with connection() as database:
+        image_rows = database.execute("SELECT image_filename FROM schedules WHERE trip_id = ? AND image_filename IS NOT NULL", (trip_id,)).fetchall()
         database.execute("DELETE FROM schedules WHERE trip_id = ?", (trip_id,))
         database.execute("DELETE FROM trip_days WHERE trip_id = ?", (trip_id,))
         database.execute("DELETE FROM trip_members WHERE trip_id = ?", (trip_id,))
         cursor = database.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
+    for image_row in image_rows:
+        (DB_PATH.parent / "uploads" / image_row["image_filename"]).unlink(missing_ok=True)
     return cursor.rowcount > 0
 
 
-def _schedule_from_row(row: sqlite3.Row) -> ScheduleItem:
-    common = {"id": row["id"], "kind": row["kind"], "time": row["time"], "title": row["title"], "status": row["status"]}
+def _schedule_from_row(database: sqlite3.Connection, row: sqlite3.Row) -> ScheduleItem:
+    comment_rows = database.execute(
+        "SELECT * FROM schedule_comments WHERE schedule_id = ? ORDER BY created_at, id",
+        (row["id"],),
+    ).fetchall()
+    common = {
+        "id": row["id"],
+        "kind": row["kind"],
+        "time": row["time"],
+        "title": row["title"],
+        "status": row["status"],
+        "memo": row["memo"],
+        "preCost": row["pre_cost"],
+        "imageUrl": f"/uploads/{row['image_filename']}" if row["image_filename"] else None,
+        "comments": [
+            {"id": comment["id"], "member": comment["member_name"], "content": comment["content"], "createdAt": comment["created_at"]}
+            for comment in comment_rows
+        ],
+    }
     if row["kind"] == "place":
         data = {**common, "location": row["location"], "durationMinutes": row["duration_minutes"]}
         return schedule_item_adapter.validate_python(data)
@@ -242,10 +286,10 @@ def list_trip_days(trip_id: str) -> list[TripDay]:
     with connection() as database:
         day_rows = database.execute("SELECT * FROM trip_days WHERE trip_id = ? ORDER BY position", (trip_id,)).fetchall()
         schedule_rows = database.execute("SELECT * FROM schedules WHERE trip_id = ? ORDER BY time", (trip_id,)).fetchall()
-    items_by_day: dict[str, list[ScheduleItem]] = {row["id"]: [] for row in day_rows}
-    for row in schedule_rows:
-        items_by_day[row["day_id"]].append(_schedule_from_row(row))
-    return [TripDay(id=row["id"], label=row["label"], date=row["date"], items=items_by_day[row["id"]]) for row in day_rows]
+        items_by_day: dict[str, list[ScheduleItem]] = {row["id"]: [] for row in day_rows}
+        for row in schedule_rows:
+            items_by_day[row["day_id"]].append(_schedule_from_row(database, row))
+        return [TripDay(id=row["id"], label=row["label"], date=row["date"], items=items_by_day[row["id"]]) for row in day_rows]
 
 
 def create_schedule(trip_id: str, day_id: str, data: ScheduleCreate) -> ScheduleItem | None:
@@ -263,27 +307,114 @@ def create_schedule(trip_id: str, day_id: str, data: ScheduleCreate) -> Schedule
             return None
         database.execute(
             """INSERT INTO schedules
-            (id, trip_id, day_id, kind, time, title, status, location, duration_minutes, from_location, to_location)
-            VALUES (?, ?, ?, ?, ?, ?, 'candidate', ?, ?, ?, ?)""",
-            (item_id, trip_id, day_id, data.kind, data.time, data.title.strip(), values["location"], values["duration_minutes"], values["from_location"], values["to_location"]),
+            (id, trip_id, day_id, kind, time, title, status, location, duration_minutes, from_location, to_location, memo, pre_cost)
+            VALUES (?, ?, ?, ?, ?, ?, 'candidate', ?, ?, ?, ?, ?, ?)""",
+            (
+                item_id,
+                trip_id,
+                day_id,
+                data.kind,
+                data.time,
+                data.title.strip(),
+                values["location"],
+                values["duration_minutes"],
+                values["from_location"],
+                values["to_location"],
+                data.memo.strip() if data.memo and data.memo.strip() else None,
+                data.preCost,
+            ),
         )
         row = database.execute("SELECT * FROM schedules WHERE id = ?", (item_id,)).fetchone()
-    return _schedule_from_row(row)
+        return _schedule_from_row(database, row)
 
 
 def update_schedule(trip_id: str, day_id: str, item_id: str, data: ScheduleUpdate) -> ScheduleItem | None:
     with connection() as database:
+        current = database.execute(
+            "SELECT * FROM schedules WHERE id = ? AND trip_id = ? AND day_id = ?",
+            (item_id, trip_id, day_id),
+        ).fetchone()
+        if current is None:
+            return None
+
+        location = data.location.strip()
+        values = {
+            "location": location if data.kind != "transport" else None,
+            "duration_minutes": current["duration_minutes"] if data.kind == "place" and current["kind"] == "place" else (60 if data.kind == "place" else None),
+            "reservation_name": current["reservation_name"] if data.kind == "meal" and current["kind"] == "meal" else None,
+            "from_location": location if data.kind == "transport" else None,
+            "to_location": current["to_location"] if data.kind == "transport" and current["kind"] == "transport" else ("목적지 미정" if data.kind == "transport" else None),
+        }
         cursor = database.execute(
-            "UPDATE schedules SET title = ?, time = ?, status = ? WHERE id = ? AND trip_id = ? AND day_id = ?",
-            (data.title.strip(), data.time, data.status, item_id, trip_id, day_id),
+            """UPDATE schedules
+            SET kind = ?, title = ?, time = ?, status = ?, location = ?, duration_minutes = ?,
+                reservation_name = ?, from_location = ?, to_location = ?, memo = ?, pre_cost = ?
+            WHERE id = ? AND trip_id = ? AND day_id = ?""",
+            (
+                data.kind,
+                data.title.strip(),
+                data.time,
+                data.status,
+                values["location"],
+                values["duration_minutes"],
+                values["reservation_name"],
+                values["from_location"],
+                values["to_location"],
+                data.memo.strip() if data.memo and data.memo.strip() else None,
+                data.preCost,
+                item_id,
+                trip_id,
+                day_id,
+            ),
         )
         if cursor.rowcount == 0:
             return None
         row = database.execute("SELECT * FROM schedules WHERE id = ?", (item_id,)).fetchone()
-    return _schedule_from_row(row)
+        return _schedule_from_row(database, row)
 
 
 def delete_schedule(trip_id: str, day_id: str, item_id: str) -> bool:
     with connection() as database:
+        row = database.execute(
+            "SELECT image_filename FROM schedules WHERE id = ? AND trip_id = ? AND day_id = ?",
+            (item_id, trip_id, day_id),
+        ).fetchone()
         cursor = database.execute("DELETE FROM schedules WHERE id = ? AND trip_id = ? AND day_id = ?", (item_id, trip_id, day_id))
+    if row and row["image_filename"]:
+        (DB_PATH.parent / "uploads" / row["image_filename"]).unlink(missing_ok=True)
     return cursor.rowcount > 0
+
+
+def set_schedule_image(trip_id: str, day_id: str, item_id: str, filename: str | None) -> tuple[ScheduleItem, str | None] | None:
+    with connection() as database:
+        current = database.execute(
+            "SELECT * FROM schedules WHERE id = ? AND trip_id = ? AND day_id = ?",
+            (item_id, trip_id, day_id),
+        ).fetchone()
+        if current is None:
+            return None
+        previous = current["image_filename"]
+        database.execute("UPDATE schedules SET image_filename = ? WHERE id = ?", (filename, item_id))
+        row = database.execute("SELECT * FROM schedules WHERE id = ?", (item_id,)).fetchone()
+        return _schedule_from_row(database, row), previous
+
+
+def add_schedule_comment(trip_id: str, day_id: str, item_id: str, data: ScheduleCommentCreate) -> ScheduleComment | None:
+    comment_id = str(uuid4())
+    with connection() as database:
+        schedule = database.execute(
+            "SELECT 1 FROM schedules WHERE id = ? AND trip_id = ? AND day_id = ?",
+            (item_id, trip_id, day_id),
+        ).fetchone()
+        member = database.execute(
+            "SELECT 1 FROM trip_members WHERE trip_id = ? AND name = ?",
+            (trip_id, data.member.strip()),
+        ).fetchone()
+        if schedule is None or member is None:
+            return None
+        database.execute(
+            "INSERT INTO schedule_comments (id, schedule_id, member_name, content) VALUES (?, ?, ?, ?)",
+            (comment_id, item_id, data.member.strip(), data.content.strip()),
+        )
+        row = database.execute("SELECT * FROM schedule_comments WHERE id = ?", (comment_id,)).fetchone()
+        return ScheduleComment(id=row["id"], member=row["member_name"], content=row["content"], createdAt=row["created_at"])

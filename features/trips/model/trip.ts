@@ -6,6 +6,17 @@ type ScheduleBase = {
   time: string;
   title: string;
   status: ScheduleStatus;
+  memo?: string;
+  preCost: number;
+  imageUrl?: string;
+  comments: ScheduleComment[];
+};
+
+export type ScheduleComment = {
+  id: string;
+  member: string;
+  content: string;
+  createdAt: string;
 };
 
 export type ScheduleItem =
@@ -41,10 +52,31 @@ export type NewScheduleInput = {
   time: string;
   kind: ScheduleKind;
   location: string;
+  memo?: string;
+  preCost?: number;
 };
 
 export type UpdateScheduleInput = {
   title: string;
   time: string;
   status: ScheduleStatus;
+  kind: ScheduleKind;
+  location: string;
+  memo?: string;
+  preCost?: number;
+};
+
+export type WeatherDay = {
+  date: string;
+  weatherCode: number;
+  temperatureMax: number;
+  temperatureMin: number;
+  precipitationProbability: number;
+};
+
+export type WeatherForecast = {
+  status: "forecast" | "unavailable" | "error";
+  locationName: string;
+  days: WeatherDay[];
+  message?: string;
 };

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import type { NewScheduleInput, ScheduleKind } from "../model/trip";
 
@@ -21,7 +22,7 @@ type AddScheduleDialogProps = {
 };
 
 export function AddScheduleDialog({ date, open, onOpenChange, onAdd }: AddScheduleDialogProps) {
-  const [form, setForm] = useState<NewScheduleInput>({ title: "", time: "15:00", kind: "place", location: "" });
+  const [form, setForm] = useState<NewScheduleInput>({ title: "", time: "15:00", kind: "place", location: "", memo: "", preCost: 0 });
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -31,7 +32,7 @@ export function AddScheduleDialog({ date, open, onOpenChange, onAdd }: AddSchedu
     }
     try {
       await onAdd(form);
-      setForm({ title: "", time: "15:00", kind: "place", location: "" });
+      setForm({ title: "", time: "15:00", kind: "place", location: "", memo: "", preCost: 0 });
       onOpenChange(false);
       toast.success(`${date}에 일정을 추가했어요.`);
     } catch {
@@ -53,8 +54,12 @@ export function AddScheduleDialog({ date, open, onOpenChange, onAdd }: AddSchedu
             <div><Label htmlFor="time">시간</Label><Input id="time" type="time" value={form.time} onChange={(event) => setForm({ ...form, time: event.target.value })} /></div>
             <div><Label htmlFor="kind">종류</Label><select id="kind" value={form.kind} onChange={(event) => setForm({ ...form, kind: event.target.value as ScheduleKind })}>{scheduleKinds.map((kind) => <option key={kind.value} value={kind.value}>{kind.label}</option>)}</select></div>
           </div>
-          <div><Label htmlFor="location">장소 또는 출발지</Label><Input id="location" value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder="지역이나 역 이름" /></div>
-          <Button type="submit" className="submit-button">후보 일정에 추가</Button>
+          <div className="form-grid">
+            <div><Label htmlFor="location">장소 또는 출발지</Label><Input id="location" value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder="지역이나 역 이름" /></div>
+            <div><Label htmlFor="pre-cost">예상 비용</Label><Input id="pre-cost" type="number" min="0" step="1000" value={form.preCost} onChange={(event) => setForm({ ...form, preCost: Number(event.target.value) })} placeholder="예상 비용" /></div>
+          </div>
+          <div><Label htmlFor="memo">메모</Label><Textarea id="memo" value={form.memo} onChange={(event) => setForm({ ...form, memo: event.target.value })} placeholder="일정에 대한 추가 정보" /></div>
+          <Button type="submit" className="submit-button">일정에 추가</Button>
         </form>
       </DialogContent>
     </Dialog>
