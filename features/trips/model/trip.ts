@@ -27,11 +27,14 @@ export type Trip = {
   startDate: string;
   endDate: string;
   members: string[];
+  budget: number;
 };
 
 export type CreateTripInput = Omit<Trip, "id">;
 
 export type UpdateTripMembersInput = Pick<Trip, "members">;
+
+export type UpdateTripBudgetInput = Pick<Trip, "budget">;
 
 export type NewScheduleInput = {
   title: string;

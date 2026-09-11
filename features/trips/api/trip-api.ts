@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CreateTripInput, NewScheduleInput, ScheduleItem, Trip, TripDay, UpdateScheduleInput, UpdateTripMembersInput } from "../model/trip";
+import type { CreateTripInput, NewScheduleInput, ScheduleItem, Trip, TripDay, UpdateScheduleInput, UpdateTripBudgetInput, UpdateTripMembersInput } from "../model/trip";
 
 const scheduleBaseSchema = z.object({ id: z.string(), time: z.string(), title: z.string(), status: z.enum(["confirmed", "candidate"]) });
 const scheduleItemSchema = z.discriminatedUnion("kind", [
@@ -8,7 +8,7 @@ const scheduleItemSchema = z.discriminatedUnion("kind", [
   scheduleBaseSchema.extend({ kind: z.literal("transport"), from: z.string(), to: z.string() }),
 ]);
 const tripDaysSchema = z.array(z.object({ id: z.string(), label: z.string(), date: z.string(), items: z.array(scheduleItemSchema) }));
-const tripSchema = z.object({ id: z.string(), title: z.string(), destination: z.string(), startDate: z.string(), endDate: z.string(), members: z.array(z.string()) });
+const tripSchema = z.object({ id: z.string(), title: z.string(), destination: z.string(), startDate: z.string(), endDate: z.string(), members: z.array(z.string()), budget: z.number() });
 
 const API_URL = (process.env.NEXT_PUBLIC_TRIPWEAVE_API_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
 
@@ -35,6 +35,10 @@ export async function createTrip(input: CreateTripInput): Promise<Trip> {
 
 export async function updateTripMembers(tripId: string, input: UpdateTripMembersInput): Promise<Trip> {
   return tripSchema.parse(await request(`/api/trips/${encodeURIComponent(tripId)}/members`, { method: "PUT", body: JSON.stringify(input) }));
+}
+
+export async function updateTripBudget(tripId: string, input: UpdateTripBudgetInput): Promise<Trip> {
+  return tripSchema.parse(await request(`/api/trips/${encodeURIComponent(tripId)}/budget`, { method: "PUT", body: JSON.stringify(input) }));
 }
 
 export async function deleteTrip(tripId: string): Promise<void> {

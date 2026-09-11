@@ -10,6 +10,7 @@ class Trip(BaseModel):
     startDate: str
     endDate: str
     members: list[str]
+    budget: int = Field(ge=0)
 
 
 class TripCreate(BaseModel):
@@ -18,10 +19,15 @@ class TripCreate(BaseModel):
     startDate: str
     endDate: str
     members: list[str] = Field(min_length=1, max_length=12)
+    budget: int = Field(default=0, ge=0)
 
 
 class TripMembersUpdate(BaseModel):
     members: list[str] = Field(min_length=1, max_length=12)
+
+
+class TripBudgetUpdate(BaseModel):
+    budget: int = Field(ge=0)
 
 
 class ScheduleBase(BaseModel):

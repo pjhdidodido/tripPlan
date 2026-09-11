@@ -4,8 +4,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 
-from .database import create_schedule, create_trip, delete_schedule, delete_trip, initialize_database, list_trip_days, list_trips, replace_trip_members, update_schedule
-from .schemas import ScheduleCreate, ScheduleItem, ScheduleUpdate, Trip, TripCreate, TripDay, TripMembersUpdate
+from .database import create_schedule, create_trip, delete_schedule, delete_trip, initialize_database, list_trip_days, list_trips, replace_trip_members, update_schedule, update_trip_budget
+from .schemas import ScheduleCreate, ScheduleItem, ScheduleUpdate, Trip, TripBudgetUpdate, TripCreate, TripDay, TripMembersUpdate
 
 
 @asynccontextmanager
@@ -51,6 +51,14 @@ def put_trip_members(trip_id: str, data: TripMembersUpdate) -> Trip:
         trip = replace_trip_members(trip_id, data.members)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    return trip
+
+
+@app.put("/api/trips/{trip_id}/budget", response_model=Trip)
+def put_trip_budget(trip_id: str, data: TripBudgetUpdate) -> Trip:
+    trip = update_trip_budget(trip_id, data.budget)
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
     return trip

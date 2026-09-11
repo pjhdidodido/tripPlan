@@ -55,11 +55,13 @@ class TripApiTest(unittest.TestCase):
                 "startDate": "2027-07-10",
                 "endDate": "2027-07-12",
                 "members": ["민서", "도윤"],
+                "budget": 1500000,
             },
         )
         self.assertEqual(created.status_code, 201)
         trip = created.json()
         self.assertEqual(trip["members"], ["민서", "도윤"])
+        self.assertEqual(trip["budget"], 1500000)
         self.assertEqual(len(self.client.get(f"/api/trips/{trip['id']}/days").json()), 3)
 
         updated = self.client.put(
@@ -68,6 +70,13 @@ class TripApiTest(unittest.TestCase):
         )
         self.assertEqual(updated.status_code, 200)
         self.assertEqual(updated.json()["members"], ["민서", "하준"])
+
+        budget_updated = self.client.put(
+            f"/api/trips/{trip['id']}/budget",
+            json={"budget": 1800000},
+        )
+        self.assertEqual(budget_updated.status_code, 200)
+        self.assertEqual(budget_updated.json()["budget"], 1800000)
         self.assertEqual(len(self.client.get("/api/trips/kyoto-autumn/days").json()[1]["items"]), 4)
 
         deleted = self.client.delete(f"/api/trips/{trip['id']}")

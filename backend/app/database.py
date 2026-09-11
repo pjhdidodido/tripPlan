@@ -39,6 +39,7 @@ def initialize_database() -> None:
                 destination TEXT NOT NULL,
                 start_date TEXT NOT NULL,
                 end_date TEXT NOT NULL,
+                budget INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -81,17 +82,23 @@ def initialize_database() -> None:
             );
             """
         )
+        trip_columns = {row["name"] for row in database.execute("PRAGMA table_info(trips)").fetchall()}
+        if "budget" not in trip_columns:
+            database.execute("ALTER TABLE trips ADD COLUMN budget INTEGER NOT NULL DEFAULT 0")
+            database.execute("UPDATE trips SET budget = 1240000 WHERE id = 'kyoto-autumn'")
+            database.execute("UPDATE trips SET budget = 800000 WHERE id = 'korea-weekend'")
+
         seeded = database.execute("SELECT 1 FROM app_metadata WHERE key = 'initial_trips_seeded'").fetchone()
         if seeded:
             return
 
         database.execute(
-            "INSERT OR IGNORE INTO trips (id, title, destination, start_date, end_date) VALUES (?, ?, ?, ?, ?)",
-            ("kyoto-autumn", "교토의 느린 가을", "교토", "2026-10-17", "2026-10-20"),
+            "INSERT OR IGNORE INTO trips (id, title, destination, start_date, end_date, budget) VALUES (?, ?, ?, ?, ?, ?)",
+            ("kyoto-autumn", "교토의 느린 가을", "교토", "2026-10-17", "2026-10-20", 1240000),
         )
         database.execute(
-            "INSERT OR IGNORE INTO trips (id, title, destination, start_date, end_date) VALUES (?, ?, ?, ?, ?)",
-            ("korea-weekend", "한국 주말 여행", "서울", "2027-04-03", "2027-04-05"),
+            "INSERT OR IGNORE INTO trips (id, title, destination, start_date, end_date, budget) VALUES (?, ?, ?, ?, ?, ?)",
+            ("korea-weekend", "한국 주말 여행", "서울", "2027-04-03", "2027-04-05", 800000),
         )
         for trip_id, names in (("kyoto-autumn", ["민서", "준호", "서연", "나"]), ("korea-weekend", ["지우", "현우"])):
             has_members = database.execute("SELECT 1 FROM trip_members WHERE trip_id = ? LIMIT 1", (trip_id,)).fetchone()
@@ -136,6 +143,7 @@ def _trip_from_row(database: sqlite3.Connection, row: sqlite3.Row) -> Trip:
         startDate=row["start_date"],
         endDate=row["end_date"],
         members=[member["name"] for member in member_rows],
+        budget=row["budget"],
     )
 
 
@@ -168,8 +176,8 @@ def create_trip(data: TripCreate) -> Trip:
     trip_id = f"{slug}-{uuid4().hex[:8]}"
     with connection() as database:
         database.execute(
-            "INSERT INTO trips (id, title, destination, start_date, end_date) VALUES (?, ?, ?, ?, ?)",
-            (trip_id, data.title.strip(), data.destination.strip(), data.startDate, data.endDate),
+            "INSERT INTO trips (id, title, destination, start_date, end_date, budget) VALUES (?, ?, ?, ?, ?, ?)",
+            (trip_id, data.title.strip(), data.destination.strip(), data.startDate, data.endDate, data.budget),
         )
         database.executemany(
             "INSERT INTO trip_members (id, trip_id, name, position) VALUES (?, ?, ?, ?)",
@@ -197,6 +205,15 @@ def replace_trip_members(trip_id: str, members: list[str]) -> Trip | None:
             "INSERT INTO trip_members (id, trip_id, name, position) VALUES (?, ?, ?, ?)",
             [(str(uuid4()), trip_id, name, position) for position, name in enumerate(cleaned)],
         )
+        return _trip_from_row(database, row)
+
+
+def update_trip_budget(trip_id: str, budget: int) -> Trip | None:
+    with connection() as database:
+        cursor = database.execute("UPDATE trips SET budget = ? WHERE id = ?", (budget, trip_id))
+        if cursor.rowcount == 0:
+            return None
+        row = database.execute("SELECT * FROM trips WHERE id = ?", (trip_id,)).fetchone()
         return _trip_from_row(database, row)
 
 

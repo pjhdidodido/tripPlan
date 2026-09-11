@@ -17,7 +17,7 @@ type TripSwitcherProps = {
   onDelete: (trip: Trip) => Promise<void>;
 };
 
-const initialForm: CreateTripInput = { title: "", destination: "", startDate: "", endDate: "", members: [""] };
+const initialForm: CreateTripInput = { title: "", destination: "", startDate: "", endDate: "", members: [""], budget: 0 };
 
 export function TripSwitcher({ trips, currentTrip, onSelect, onCreate, onDelete }: TripSwitcherProps) {
   const [open, setOpen] = useState(false);
@@ -64,6 +64,9 @@ export function TripSwitcher({ trips, currentTrip, onSelect, onCreate, onDelete 
               <div className="form-grid">
                 <div><Label htmlFor="trip-start">시작일</Label><Input id="trip-start" type="date" value={form.startDate} onChange={(event) => setForm({ ...form, startDate: event.target.value })} /></div>
                 <div><Label htmlFor="trip-end">종료일</Label><Input id="trip-end" type="date" min={form.startDate} value={form.endDate} onChange={(event) => setForm({ ...form, endDate: event.target.value })} /></div>
+              </div>
+              <div className="form-grid">
+                <div><Label htmlFor="trip-budget">공동 예산</Label><Input id="trip-budget" type="number" min="0" step="10000" value={form.budget} onChange={(event) => setForm({ ...form, budget: Number(event.target.value) })} placeholder="예: 1000000" /></div>
               </div>
               <div><Label>함께 가는 사람</Label><MemberFields members={form.members} onChange={(members) => setForm({ ...form, members })} /></div>
               <div className="dialog-actions"><Button type="button" variant="outline" onClick={() => setCreating(false)}>목록으로</Button><Button type="submit" disabled={saving}>{saving ? "생성 중..." : "여행 만들기"}</Button></div>
