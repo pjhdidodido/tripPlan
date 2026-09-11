@@ -74,14 +74,16 @@ function ChecklistSection({ title, owner, items, onCreate, onUpdate, onDelete }:
 export function ChecklistBoard({ members, items, onCreate, onUpdate, onDelete }: ChecklistBoardProps) {
   return (
     <div className="checklist-board">
-      <div className="checklist-page-heading">
+      <div className="workspace-heading checklist-page-heading">
         <div><p className="kicker"><CheckCircle2 /> 빠뜨리지 않도록 함께 확인해요</p><h1>여행 준비 체크리스트</h1></div>
         <span>항목 이름을 클릭하면 바로 수정할 수 있어요.</span>
       </div>
-      <ChecklistSection title="공통 준비물" items={items.filter((item) => !item.owner)} onCreate={onCreate} onUpdate={onUpdate} onDelete={onDelete} />
-      {members.map((member) => (
-        <ChecklistSection key={member} title={`${member}의 준비물`} owner={member} items={items.filter((item) => item.owner === member)} onCreate={onCreate} onUpdate={onUpdate} onDelete={onDelete} />
-      ))}
+      <div className="checklist-sections">
+        <ChecklistSection title="공통 준비물" items={items.filter((item) => !item.owner)} onCreate={onCreate} onUpdate={onUpdate} onDelete={onDelete} />
+        {members.map((member) => (
+          <ChecklistSection key={member} title={`${member}의 준비물`} owner={member} items={items.filter((item) => item.owner === member)} onCreate={onCreate} onUpdate={onUpdate} onDelete={onDelete} />
+        ))}
+      </div>
     </div>
   );
 }

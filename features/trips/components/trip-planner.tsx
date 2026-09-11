@@ -499,7 +499,7 @@ export function TripPlanner({ tripId }: TripPlannerProps) {
         <section className="plan-canvas" id="plan">
           {currentTrip && activeDay && activeView === "schedule" ? (
             <>
-              <div className="plan-heading">
+              <div className="workspace-heading plan-heading">
                 <div>
                   <p className="kicker">
                     <Sparkles /> 하나 둘 셋-! 화이팅!!

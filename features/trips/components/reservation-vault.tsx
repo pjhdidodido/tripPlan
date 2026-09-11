@@ -102,7 +102,7 @@ export function ReservationVault({ reservations, onCreate, onUpdate, onDelete, o
   const [editing, setEditing] = useState<Reservation | null>(null);
   return (
     <div className="reservation-vault">
-      <div className="reservation-page-heading"><div><p className="kicker"><Ticket /> 예약 정보를 한곳에</p><h1>예약 보관함</h1></div><Button onClick={() => setCreating(true)}><Plus /> 예약 추가</Button></div>
+      <div className="workspace-heading reservation-page-heading"><div><p className="kicker"><Ticket /> 예약 정보를 한곳에</p><h1>예약 보관함</h1></div><Button onClick={() => setCreating(true)}><Plus /> 예약 추가</Button></div>
       <div className="reservation-list">
         {reservations.length === 0 && <div className="reservation-empty"><Ticket /><h2>저장된 예약이 없어요</h2><p>숙소나 교통편 예약부터 추가해 보세요.</p></div>}
         {reservations.map((reservation) => {
